@@ -1,0 +1,59 @@
+{
+    "name": "@interverse/three-layered-material",
+    "version": "1.0.0",
+    "description": "Modular PBR material layering system for Three.js with TSL node-based blending",
+    "main": "dist/index.js",
+    "module": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "type": "module",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md",
+        "LICENSE"
+    ],
+    "scripts": {
+        "build": "tsc",
+        "clean": "rimraf dist",
+        "prepublishOnly": "yarn clean && yarn build"
+    },
+    "keywords": [
+        "three",
+        "threejs",
+        "three.js",
+        "material",
+        "layered",
+        "pbr",
+        "tsl",
+        "shader",
+        "node-material",
+        "webgpu",
+        "blending",
+        "decal",
+        "layer",
+        "triplanar"
+    ],
+    "author": "",
+    "license": "MIT",
+    "peerDependencies": {
+        "three": ">=0.181.0"
+    },
+    "devDependencies": {
+        "@types/three": "^0.181.0",
+        "rimraf": "^5.0.0",
+        "typescript": "^5.3.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": ""
+    },
+    "bugs": {
+        "url": ""
+    },
+    "homepage": ""
+}
