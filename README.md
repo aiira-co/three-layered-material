@@ -88,6 +88,99 @@ roughness?: number;          // Fallback roughness (0-1)
 metalness?: number;          // Fallback metalness (0-1)
 ```
 
+## 🔌 Using Materials as Layer Inputs
+
+One of the most powerful features is the ability to **use existing Three.js materials as layer inputs**. This allows you to:
+- Reuse pre-built materials from your library
+- Combine node materials with layered blending
+- Apply masking and features to existing materials
+
+### Basic Material Input
+
+```typescript
+import { LayeredMaterial } from '@interverse/three-layered-material';
+import { MeshPhysicalNodeMaterial } from 'three/webgpu';
+
+// Create or import an existing node material
+const existingMaterial = new MeshPhysicalNodeMaterial({
+  color: 0x4488ff,
+  roughness: 0.3,
+  metalness: 0.8
+});
+
+// Use it as a layer
+const material = new LayeredMaterial({
+  layers: [
+    {
+      name: 'Base',
+      map: { color: baseTexture }
+    },
+    {
+      name: 'Overlay Material',
+      materialInput: existingMaterial,  // Use material as layer!
+      mask: {
+        useSlope: true,
+        slopeMin: 0.3,
+        slopeMax: 0.7
+      }
+    }
+  ]
+});
+```
+
+### Material Transform Options
+
+Control how the material is processed:
+
+```typescript
+{
+  materialInput: myNodeMaterial,
+  materialTransform: {
+    extractTextures: true,      // Extract textures for triplanar/bombing
+    overrideScale: true,        // Apply layer scale to material
+    respectMaterialSettings: true // Keep material's original settings
+  },
+  // Features still work with material inputs!
+  edgeWear: { enable: true, intensity: 1.5 },
+  triplanar: { enable: true }
+}
+```
+
+### Layer Input Priority
+
+The system processes layer inputs in this order:
+1. **`materialInput`** - MeshPhysicalNodeMaterial (highest priority)
+2. **`map`** - Texture maps (color, normal, roughness, etc.)
+3. **`color`** - Solid color fallback (lowest priority)
+
+### Compatible Materials
+
+Any `MeshPhysicalNodeMaterial` can be used, including those with:
+- Custom shader nodes (`colorNode`, `normalNode`, etc.)
+- Standard texture maps
+- Subsurface scattering, transmission, clearcoat
+
+```typescript
+// Example: Subsurface material as a layer
+const skinMaterial = new MeshPhysicalNodeMaterial({
+  color: 0xffccaa,
+  subsurfaceColor: 0xff6666,
+  subsurface: 0.5
+});
+
+const characterMaterial = new LayeredMaterial({
+  layers: [
+    { materialInput: skinMaterial },
+    {
+      name: 'Makeup',
+      map: { color: makeupTexture },
+      mask: { map: makeupMaskTexture },
+      blendMode: { color: 'overlay' }
+    }
+  ]
+});
+```
+
 ## 🎭 Advanced Features
 
 ### 1. Edge Wear System
