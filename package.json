@@ -1,6 +1,6 @@
 {
     "name": "@interverse/three-layered-material",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Modular PBR material layering system for Three.js with TSL node-based blending",
     "main": "dist/index.js",
     "module": "dist/index.js",
@@ -50,10 +50,10 @@
     },
     "repository": {
         "type": "git",
-        "url": ""
+        "url": "git+https://github.com/aiira-co/three-layered-material.git"
     },
     "bugs": {
-        "url": ""
+        "url": "https://github.com/aiira-co/three-layered-material/issues"
     },
-    "homepage": ""
+    "homepage": "https://github.com/aiira-co/three-layered-material#readme"
 }
