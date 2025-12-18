@@ -1,6 +1,17 @@
-# Three.js Layered Material System
+# @interverse/three-layered-material
 
 A **procedural, multi-layer physically based material system** built using **Three.js TSL** and **MeshPhysicalNodeMaterial** that brings Substance Painter-style layering into Three.js runtime.
+
+## 📦 Installation
+
+```bash
+npm install @interverse/three-layered-material
+# or
+yarn add @interverse/three-layered-material
+```
+
+**Peer Dependencies:**
+- `three` >= 0.182.0
 
 ## 🎯 What It Is
 
@@ -14,7 +25,8 @@ Think of this as **Substance Painter + Gaea terrain shader → inside Three.js**
 ## 🚀 Quick Start
 
 ```typescript
-import LayeredMaterial from './LayeredMaterial';
+import { LayeredMaterial } from '@interverse/three-layered-material';
+import * as THREE from 'three';
 const loader = new THREE.TextureLoader();
 
 const material = new LayeredMaterial({
@@ -367,8 +379,12 @@ The `MaterialVariant` class extends `LayeredMaterial` to create material variati
 ## Installation & Import
 
 ```typescript
-import { MaterialVariant, ObservableLayeredMaterial, ObservableMaterialVariant } from './material-variant';
-import LayeredMaterial from './layered-material';
+import { 
+  LayeredMaterial,
+  MaterialVariant, 
+  ObservableLayeredMaterial, 
+  ObservableMaterialVariant 
+} from '@interverse/three-layered-material';
 ```
 
 ## Basic Usage
@@ -875,7 +891,7 @@ The `DynamicLayeredMaterial` enables **real-time material transitions** between 
 ### Creating a Dynamic Material
 
 ```typescript
-import { DynamicLayeredMaterial } from './dynamic-layered-material';
+import { DynamicLayeredMaterial } from '@interverse/three-layered-material';
 
 // Create dynamic material with initial state
 const dynamicMaterial = new DynamicLayeredMaterial({
