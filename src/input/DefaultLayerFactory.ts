@@ -13,7 +13,14 @@ export class DefaultLayerFactory {
    * Create a layer from solid colors and scalar values
    */
   create(layer: LayerConfig): LayerData {
-    const color = this.createColor(layer);
+    let color = this.createColor(layer);
+
+    // Apply color tint if specified
+    if (layer.colorTint) {
+      const tint = vec3(layer.colorTint.r, layer.colorTint.g, layer.colorTint.b);
+      color = color.mul(tint);
+    }
+
     const normal = vec3(0, 0, 1);
     const roughness = float(layer.roughness ?? 0.5);
     const metalness = float(layer.metalness ?? 0.0);

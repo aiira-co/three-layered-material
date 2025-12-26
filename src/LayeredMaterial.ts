@@ -82,8 +82,102 @@ export class LayeredMaterial extends MeshPhysicalNodeMaterial {
     this.needsUpdate = true;
   }
 
+  /**
+   * Insert a layer at a specific index
+   * @param index - Position to insert at (0 = bottom, length = top)
+   * @param config - Layer configuration
+   */
+  insertLayer(index: number, config: LayerConfig): void {
+    const clampedIndex = Math.max(0, Math.min(index, this.layers.length));
+    this.layers.splice(clampedIndex, 0, config);
+    this.setupMaterial();
+    this.needsUpdate = true;
+  }
+
+  /**
+   * Move a layer from one position to another
+   * @param fromIndex - Current layer index
+   * @param toIndex - Target layer index
+   */
+  moveLayer(fromIndex: number, toIndex: number): void {
+    if (fromIndex < 0 || fromIndex >= this.layers.length) return;
+    if (toIndex < 0 || toIndex >= this.layers.length) return;
+    if (fromIndex === toIndex) return;
+
+    const [layer] = this.layers.splice(fromIndex, 1);
+    this.layers.splice(toIndex, 0, layer);
+    this.setupMaterial();
+    this.needsUpdate = true;
+  }
+
+  /**
+   * Swap two layers
+   * @param indexA - First layer index
+   * @param indexB - Second layer index
+   */
+  swapLayers(indexA: number, indexB: number): void {
+    if (indexA < 0 || indexA >= this.layers.length) return;
+    if (indexB < 0 || indexB >= this.layers.length) return;
+    if (indexA === indexB) return;
+
+    const temp = this.layers[indexA];
+    this.layers[indexA] = this.layers[indexB];
+    this.layers[indexB] = temp;
+    this.setupMaterial();
+    this.needsUpdate = true;
+  }
+
+  /**
+   * Get the number of layers
+   */
+  getLayerCount(): number {
+    return this.layers.length;
+  }
+
+  /**
+   * Get a layer by index
+   */
+  getLayer(index: number): LayerConfig | undefined {
+    return this.layers[index];
+  }
+
   updateLayer(index: number, config: Partial<LayerConfig>): void {
-    this.layers[index] = { ...this.layers[index], ...config };
+    const existing = this.layers[index];
+
+    // Deep merge for nested objects to prevent losing config when updating single properties
+    this.layers[index] = {
+      ...existing,
+      ...config,
+      // Deep merge nested objects - only merge if new config provides the property
+      mask: config.mask !== undefined
+        ? { ...(existing.mask || {}), ...config.mask }
+        : existing.mask,
+      map: config.map !== undefined
+        ? { ...(existing.map || {}), ...config.map }
+        : existing.map,
+      edgeWear: config.edgeWear !== undefined
+        ? { ...(existing.edgeWear || {}), ...config.edgeWear }
+        : existing.edgeWear,
+      triplanar: config.triplanar !== undefined
+        ? { ...(existing.triplanar || {}), ...config.triplanar }
+        : existing.triplanar,
+      textureBombing: config.textureBombing !== undefined
+        ? { ...(existing.textureBombing || {}), ...config.textureBombing }
+        : existing.textureBombing,
+      heightBlend: config.heightBlend !== undefined
+        ? { ...(existing.heightBlend || {}), ...config.heightBlend }
+        : existing.heightBlend,
+      parallax: config.parallax !== undefined
+        ? { ...(existing.parallax || {}), ...config.parallax }
+        : existing.parallax,
+      blendMode: config.blendMode !== undefined
+        ? { ...(existing.blendMode || {}), ...config.blendMode }
+        : existing.blendMode,
+      colorTint: config.colorTint !== undefined
+        ? { ...(existing.colorTint || { r: 1, g: 1, b: 1 }), ...config.colorTint }
+        : existing.colorTint,
+    };
+
     this.setupMaterial();
     this.needsUpdate = true;
   }
@@ -96,7 +190,7 @@ export class LayeredMaterial extends MeshPhysicalNodeMaterial {
   }
 
   // Protected helper methods for subclasses
-  
+
   /**
    * Sample a layer configuration into layer data
    * @param layer - Layer configuration to sample

@@ -46,6 +46,12 @@ export interface LayerConfig {
   roughness?: number;
   metalness?: number;
 
+  /**
+   * Color tint applied as a multiplier to the layer's color
+   * Values 0-1 for each channel, 1 = no change
+   */
+  colorTint?: { r: number; g: number; b: number };
+
   // Material input options
   materialTransform?: MaterialTransformConfig;
 

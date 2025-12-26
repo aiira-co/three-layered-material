@@ -34,8 +34,14 @@ export type { NoiseConfig } from './features/noise/NoiseConfig';
 // Variants
 export { MaterialVariant, ObservableLayeredMaterial, ObservableMaterialVariant } from './variants';
 export { DynamicLayeredMaterial } from './variants/DynamicLayeredMaterial';
+export { UniformDynamicMaterial } from './variants/UniformDynamicMaterial';
 export { DecalLayeredMaterial } from './variants/DecalLayeredMaterial';
 export type { DecalConfig, DamageConfig, DecalDamageSystemConfig } from './variants/types/DecalConfig';
 
 // Utils
 export * from './utils';
+
+// Terrain integration
+export { LayeredTerrainMaterialProvider } from './terrain';
+export type { LayeredTerrainConfig, TerrainContext, TerrainProviderInterface } from './terrain';
+

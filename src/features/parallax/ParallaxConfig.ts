@@ -3,6 +3,6 @@ export interface ParallaxConfig {
   scale?: number;
   steps?: number;
   maxOffset?: number;
-  method?: 'pom' | 'web-optimized' | 'simple';
+  method?: 'pom' | 'steep' | 'simple';
   quality?: 'low' | 'medium' | 'high';
 }

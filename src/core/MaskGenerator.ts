@@ -42,9 +42,11 @@ export class MaskGenerator {
       mask = mask.mul(heightMask);
     }
 
-    // Noise
+    // Noise - use world position for consistent noise across terrain chunks
     if (layer.mask.useNoise) {
-      const noise = this.noiseGenerator.generate(uv(), layer.mask);
+      // Scale world position to get reasonable noise frequency
+      const noiseCoord = positionWorld.xz.mul(float(layer.mask.noiseScale || 1).mul(0.01));
+      const noise = this.noiseGenerator.generate(noiseCoord, layer.mask);
       mask = mask.mul(noise);
     }
 

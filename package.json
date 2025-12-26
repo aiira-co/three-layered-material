@@ -1,6 +1,6 @@
 {
     "name": "@interverse/three-layered-material",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "description": "Modular PBR material layering system for Three.js with TSL node-based blending",
     "main": "dist/index.js",
     "module": "dist/index.js",

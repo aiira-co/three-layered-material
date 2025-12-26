@@ -86,6 +86,11 @@ map: {
 scale?: number;              // Texture tiling scale
 roughness?: number;          // Fallback roughness (0-1)
 metalness?: number;          // Fallback metalness (0-1)
+colorTint?: {                // Color multiplier (NEW!)
+  r: number;                 // Red channel (0-1, default 1)
+  g: number;                 // Green channel (0-1, default 1)  
+  b: number;                 // Blue channel (0-1, default 1)
+};
 ```
 
 ## 🔌 Using Materials as Layer Inputs
@@ -192,13 +197,40 @@ edgeWear: {
   intensity: 1.5,           // How much wear to apply
   threshold: 0.1,           // Curvature threshold for wear
   falloff: 0.3,             // Smooth falloff range
+  sharpness: 2.0,           // Non-linear shaping power
   color: {r: 0.8, g: 0.7, b: 0.6}, // Exposed material color
   affectsMaterial: true,     // Also change roughness/metalness
   roughness: 0.2,           // Roughness at worn edges
   metalness: 1.0,           // Metalness at worn edges
   wearPattern: 'curvature', // 'curvature'|'ambient_occlusion'|'world_space'|'combined'
+  curvatureMethod: 'normal', // 'normal'|'position'|'simplified'|'world'|'laplace'
+  useNoise: false,          // Add noise variation to wear
 }
 ```
+
+#### Wear Patterns
+
+| Pattern | Description | Best For |
+|---------|-------------|----------|
+| `curvature` | Detects edges via surface curvature | Metal edges, corners |
+| `ambient_occlusion` | Uses surface orientation (upward-facing) | Sheltered areas |
+| `world_space` | Combines wind direction + height + orientation | Environmental weathering |
+| `combined` | All patterns weighted together | Most realistic results |
+
+#### Curvature Methods Performance
+
+| Method | Performance | Quality | Description |
+|--------|-------------|---------|-------------|
+| `normal` | ⚡ Fast | ★★★★ | Normal derivative (default, best balance) |
+| `simplified` | ⚡⚡ Fastest | ★★★ | Z-component only, very cheap |
+| `world` | ⚡ Fast | ★★★★ | World normal derivative |
+| `position` | ⚡ Medium | ★★★★★ | Second derivative of position |
+| `laplace` | 🐢 Slow | ★★★★★ | Most accurate, computationally expensive |
+
+**Recommendations:**
+- Use `normal` (default) for most cases
+- Use `simplified` for mobile/low-end GPUs
+- Use `laplace` only when maximum accuracy is needed
 
 ### 2. Texture Bombing
 Eliminate tiling artifacts with stochastic sampling:
@@ -275,14 +307,25 @@ heightBlend: {
 }
 ```
 
-### 7. Parallax Occlusion
+### 7. Parallax Occlusion Mapping
+Create depth effects without geometry displacement:
+
 ```typescript
 parallax: {
   enable: true,
-  scale: 0.1,    // Parallax strength
-  steps: 8,      // Raymarching steps (quality)
+  method: 'pom',       // 'simple' | 'steep' | 'pom' (best quality)
+  scale: 0.1,          // Parallax depth strength
+  steps: 16,           // Ray marching steps (higher = better quality)
+  quality: 'high',     // 'low' | 'medium' | 'high'
 }
 ```
+
+**Methods:**
+- `simple` - Fast single offset, good for subtle effects
+- `steep` - Fixed-step ray marching, good balance
+- `pom` - Full Parallax Occlusion Mapping with interpolation (best quality)
+
+> **Note:** Requires geometry with tangent attributes. Use `geometry.computeTangents()` if you see warnings.
 
 ## 🎪 Real-World Examples
 
@@ -362,19 +405,38 @@ const metalMaterial = new LayeredMaterial({
 
 ## 🔧 Runtime API
 
-### Add/Remove Layers
+### Layer Management
 ```typescript
-// Add new layer
+// Add new layer at the top
 material.addLayer({
   name: 'New Dirt Layer',
   map: { color: dirtColor, normal: dirtNormal },
   // ... config
 });
 
+// Insert layer at specific position (NEW!)
+material.insertLayer(1, {
+  name: 'Middle Layer',
+  map: { color: middleTexture },
+});
+
+// Move layer from one position to another (NEW!)
+material.moveLayer(0, 2);  // Move layer 0 to position 2
+
+// Swap two layers (NEW!)
+material.swapLayers(0, 1);  // Swap layer 0 and 1
+
+// Get layer count (NEW!)
+const count = material.getLayerCount();
+
+// Get layer by index (NEW!)
+const layer = material.getLayer(0);
+
 // Update existing layer
 material.updateLayer(1, {
   scale: 2.0,
   roughness: 0.8,
+  colorTint: { r: 1.0, g: 0.9, b: 0.8 },  // Warm tint
 });
 
 // Remove layer
@@ -394,7 +456,61 @@ material.updateLayer(0, {
 material.updateLayer(1, {
   blendMode: { color: 'multiply', normal: 'linear' }
 });
+
+// Apply color tint (NEW!)
+material.updateLayer(0, {
+  colorTint: { r: 0.8, g: 0.8, b: 1.0 }  // Cool blue tint
+});
 ```
+
+### Uniform-Based Transitions (Performance Optimized)
+
+For real-time transitions without shader rebuilds, use `UniformDynamicMaterial`:
+
+```typescript
+import { UniformDynamicMaterial } from '@interverse/three-layered-material';
+
+// Create material with uniform-based properties
+const material = new UniformDynamicMaterial({
+  layers: [
+    {
+      name: 'Ground',
+      map: { color: groundTexture },
+      scale: 1.0,
+      roughness: 0.8
+    }
+  ]
+});
+
+// Define target state
+const wetLayers = [
+  {
+    name: 'Wet Ground',
+    map: { color: wetTexture },
+    scale: 0.8,
+    roughness: 0.3  // Wet surfaces are smoother
+  }
+];
+
+// Animate transition at 60fps WITHOUT shader rebuilds!
+function animate(deltaTime) {
+  const progress = /* your animation logic */;
+  
+  // This only updates uniform values - no shader recompilation
+  material.setTransitionFast(wetLayers, progress);
+}
+
+// Complete transition when done
+material.completeTransition();
+```
+
+**Performance Comparison:**
+| Method | Shader Rebuild | Frame Impact |
+|--------|----------------|--------------|
+| `DynamicLayeredMaterial.setTransition()` | ❌ Every frame | 50-200ms stutter |
+| `UniformDynamicMaterial.setTransitionFast()` | ✅ None | <1ms (GPU uniform update) |
+
+> **Use `UniformDynamicMaterial` for**: Day/night cycles, weather transitions, real-time sliders, any smooth animation.
 
 ## 🎯 Use Cases
 
@@ -451,6 +567,76 @@ The system is ready for:
 
 This system gives you the power of offline material authoring tools with the flexibility of real-time procedural generation. No shader expertise required - just creative layer configuration!
 
+---
+
+## 🏔️ Terrain Integration
+
+Use layered materials with terrain systems that require vertex displacement:
+
+### LayeredTerrainMaterialProvider
+
+Compatible with `@interverse/three-terrain-lod`:
+
+```typescript
+import { LayeredTerrainMaterialProvider } from '@interverse/three-layered-material';
+import { TerrainLOD } from '@interverse/three-terrain-lod';
+
+// Create layered terrain material
+const terrainMaterial = new LayeredTerrainMaterialProvider({
+  layers: [
+    {
+      name: 'Grass',
+      map: { 
+        color: grassTexture, 
+        normal: grassNormal,
+        height: grassHeight  // Used for height blending
+      },
+      scale: 0.5
+    },
+    {
+      name: 'Rock',
+      map: { 
+        color: rockTexture, 
+        normal: rockNormal,
+        height: rockHeight 
+      },
+      mask: {
+        useSlope: true,
+        slopeMin: 0.4,
+        slopeMax: 0.8
+      },
+      heightBlend: { enable: true, strength: 2.0 }
+    },
+    {
+      name: 'Snow',
+      map: { color: snowTexture },
+      mask: {
+        useHeight: true,
+        heightMin: 50,
+        heightMax: 100
+      }
+    }
+  ],
+  // Terrain-specific options
+  useLayerHeightBlending: true,  // Blend layer heights into displacement
+  layerHeightInfluence: 0.3,     // How much layer heights affect terrain
+  displacementScale: 1.0         // Global displacement multiplier
+});
+
+// Apply to terrain
+const terrain = new TerrainLOD({
+  heightMapUrl: '/terrain/heightmap.png',
+  worldSize: 1000,
+  maxHeight: 100
+});
+terrain.setMaterialProvider(terrainMaterial);
+```
+
+### Features
+- **Slope-based layer masking** - Grass on flat, rock on slopes
+- **Height-based layer masking** - Snow above certain altitude
+- **Layer height blending** - Mix layer heights into displacement for detail
+- **Full layered material features** - Edge wear, texture bombing, parallax, etc.
 
 ---
 ---

@@ -26,20 +26,32 @@ export class TextureSampler {
     // Calculate UV coordinates with scale
     let uvCoords: Node = uv().mul(float(layer.scale ?? 1));
 
-    // Sample height first (needed for parallax)
-    const height = this.sampleHeight(layer, uvCoords);
-
-    // Apply parallax offset if enabled
-    if (layer.parallax?.enable) {
-      uvCoords = this.applyParallax(uvCoords, height, layer);
+    // Apply parallax offset if enabled (before sampling other textures)
+    if (layer.parallax?.enable && layer.map.height) {
+      uvCoords = this._parallaxMapper.apply(
+        uvCoords,
+        layer.map.height,
+        layer.parallax,
+        layer.scale ?? 1
+      );
     }
+
+    // Sample height at final UV (for blending/other uses)
+    const height = this.sampleHeight(layer, uvCoords);
 
     // Determine if we should use texture bombing
     const useBombing = layer.textureBombing?.enable ?? false;
     const bombingBlend = layer.textureBombing?.blend ?? 0.5;
 
     // Sample all material properties
-    const color = this.sampleColor(layer.map.color, uvCoords, useBombing, bombingBlend);
+    let color = this.sampleColor(layer.map.color, uvCoords, useBombing, bombingBlend);
+
+    // Apply color tint if specified
+    if (layer.colorTint) {
+      const tint = vec3(layer.colorTint.r, layer.colorTint.g, layer.colorTint.b);
+      color = color.mul(tint);
+    }
+
     const normal = this.sampleNormal(layer.map.normal, uvCoords, useBombing, bombingBlend);
     const { roughness, metalness, ao } = this.samplePBRProperties(layer, uvCoords, useBombing, bombingBlend);
 
@@ -166,10 +178,6 @@ export class TextureSampler {
     }
 
     return texture(map, uvCoords).x;
-  }
-
-  private applyParallax(uvCoords: Node, height: Node, layer: LayerConfig): Node {
-    return this._parallaxMapper.apply(uvCoords, height, layer.parallax!);
   }
 
   private applyEdgeWear(data: LayerData, layer: LayerConfig): LayerData {
