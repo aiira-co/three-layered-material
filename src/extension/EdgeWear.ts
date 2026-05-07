@@ -1,6 +1,9 @@
 import { cos, dot, float, normalWorld, positionWorld, pow, saturate, sin, smoothstep, vec3 } from "three/tsl";
-import { Node } from "three/webgpu";
+
 import { Noise } from "./Noise";
+
+type Node = any;
+
 
 export class EdgeWear extends Noise {
 

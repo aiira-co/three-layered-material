@@ -14,8 +14,11 @@ import {
   mix,
   smoothstep
 } from "three/tsl";
-import { Node } from "three/webgpu";
+
 import { LayerConfig, LayerData, LayeredMaterialOptions } from "../types";
+
+type Node = any;
+
 
 export class DecalLayeredMaterial extends LayeredMaterial {
   private _decals: DecalConfig[] = [];
@@ -289,10 +292,10 @@ export class DecalLayeredMaterial extends LayeredMaterial {
     const falloff = saturate(float(1.0).sub(distance.div(float(damage.radius))));
 
     // Apply intensity
-    let mask = falloff.mul(float(damage.intensity));
+    let mask: any = falloff.mul(float(damage.intensity)) as any;
 
     // Add noise for organic damage
-    const noise = this.generateNoise(worldPos.xz.mul(10.0), {
+    const noise: any = this.generateNoise(worldPos.xz.mul(10.0), {
       useNoise: true,
       noiseType: 'fbm',
       noiseScale: 1.0,
@@ -306,13 +309,13 @@ export class DecalLayeredMaterial extends LayeredMaterial {
       case 'scratch':
         if (damage.direction) {
           const scratchDir = vec3(damage.direction.x, damage.direction.y, damage.direction.z).normalize();
-          const scratchMask = this.calculateScratchMask(worldPos, damagePos, scratchDir.xy);
+          const scratchMask: any = this.calculateScratchMask(worldPos, damagePos, scratchDir.xy) as any;
           mask = mask.mul(scratchMask);
         }
         break;
 
       case 'crack':
-        const crackNoise = this.generateNoise(worldPos.xz.mul(5.0), {
+        const crackNoise: any = this.generateNoise(worldPos.xz.mul(5.0), {
           useNoise: true,
           noiseType: 'voronoi',
           noiseScale: 1.0,
@@ -334,7 +337,7 @@ export class DecalLayeredMaterial extends LayeredMaterial {
 
       case 'corrosion':
         // Irregular organic pattern
-        const corrosionNoise = this.generateNoise(worldPos.xyz.mul(8.0), {
+        const corrosionNoise: any = this.generateNoise(worldPos.xyz.mul(8.0), {
           useNoise: true,
           noiseType: 'fbm',
           noiseScale: 1.0,

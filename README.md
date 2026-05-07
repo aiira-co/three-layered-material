@@ -11,7 +11,13 @@ yarn add @interverse/three-layered-material
 ```
 
 **Peer Dependencies:**
-- `three` >= 0.182.0
+- `three` >= 0.183.0
+
+## Version 1.1.0 Highlights
+
+- Added SPOM-style parallax support with guarded binary refinement and `1 - height` depth-space ray marching.
+- Expanded per-layer parallax controls with `refinementSteps`, `referencePlane`, `minViewZ`, `maxOffset`, `selfShadow`, `horizonMask`, and `depthOffset` metadata.
+- Added `screenSpaceDisplacement` layer metadata so host engines can opt layers into an external SSDM/post-processing resolve.
 
 ## 🎯 What It Is
 
@@ -307,25 +313,47 @@ heightBlend: {
 }
 ```
 
-### 7. Parallax Occlusion Mapping
-Create depth effects without geometry displacement:
+### 7. Parallax Occlusion Mapping and SPOM
+Create depth effects without geometry displacement. Use geometry for large shape and silhouette, then use per-layer parallax for small relief and surface detail:
 
 ```typescript
 parallax: {
   enable: true,
-  method: 'pom',       // 'simple' | 'steep' | 'pom' (best quality)
-  scale: 0.1,          // Parallax depth strength
-  steps: 16,           // Ray marching steps (higher = better quality)
-  quality: 'high',     // 'low' | 'medium' | 'high'
+  method: 'spom',          // 'simple' | 'steep' | 'pom' | 'spom'
+  scale: 0.1,              // Parallax depth strength
+  steps: 32,               // Ray marching steps
+  refinementSteps: 5,      // Binary refinement after a march hit
+  referencePlane: 0.5,     // Height-space anchor plane
+  minViewZ: 0.08,          // Grazing-angle stability clamp
+  maxOffset: 0.15,         // UV offset safety clamp
+  quality: 'high',         // 'low' | 'medium' | 'high'
+  selfShadow: false,       // Metadata for host-engine shadow passes
+  horizonMask: false,      // Metadata for host-engine horizon masking
+  depthOffset: false,      // Request depth-delta output where supported
 }
 ```
 
 **Methods:**
 - `simple` - Fast single offset, good for subtle effects
 - `steep` - Fixed-step ray marching, good balance
-- `pom` - Full Parallax Occlusion Mapping with interpolation (best quality)
+- `pom` - Parallax Occlusion Mapping with interpolation
+- `spom` - Silhouette-aware POM-style march with guarded binary refinement and optional depth-delta output
 
 > **Note:** Requires geometry with tangent attributes. Use `geometry.computeTangents()` if you see warnings.
+
+### 8. Screen-Space Displacement Metadata
+The package exposes SSDM opt-in metadata per layer. It does not render a full screen-space displacement pass by itself; host engines can read this metadata and composite a renderer-level displacement resolve.
+
+```typescript
+screenSpaceDisplacement: {
+  enabled: true,
+  strength: 0.35,
+  maxPixels: 12,
+  quality: 'medium', // 'low' | 'medium' | 'high'
+}
+```
+
+SSDM should stay visual-only by default. Keep collision, shadows, reflections, and major occlusion on real geometry, then use SPOM or SSDM for fine surface relief.
 
 ## 🎪 Real-World Examples
 

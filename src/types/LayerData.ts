@@ -1,4 +1,6 @@
-import { Node } from "three/webgpu";
+type Node = any;
+
+
 
 export interface LayerData {
   color: Node;

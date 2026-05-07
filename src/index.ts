@@ -22,7 +22,14 @@ export {
 export { DefaultLayerFactory, MaterialExtractor, TextureSampler } from './input';
 
 // Types - export explicitly to avoid conflicts with interface module
-export type { LayerConfig, LayerData, LayeredMaterialOptions, MaskChannel, NodeMaterialInput } from './types';
+export type {
+    LayerConfig,
+    LayerData,
+    LayeredMaterialOptions,
+    MaskChannel,
+    NodeMaterialInput,
+    ScreenSpaceDisplacementConfig
+} from './types';
 
 // Feature configs
 export type { TriplanarConfig } from './features/triplanar/TriplanarConfig';

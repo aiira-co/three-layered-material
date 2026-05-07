@@ -1,7 +1,10 @@
-import { Node } from "three/webgpu";
+
 import { LayerConfig } from "../types";
 import { NoiseGenerator } from "../features/noise/NoiseGenerator";
 import { float, saturate, smoothstep, dot, vec3, texture, uv, normalWorld, positionWorld } from "three/tsl";
+
+type Node = any;
+
 
 export class MaskGenerator {
   private noiseGenerator: NoiseGenerator;
@@ -15,10 +18,11 @@ export class MaskGenerator {
 
     if (!layer.mask) return mask;
 
-    // Texture mask
+    // Texture mask (optional `sampleUV` on runtime mask objects, e.g. terrain chunk-global UV)
     if (layer.mask.map) {
       const channel = layer.mask.channel || 'r';
-      mask = texture(layer.mask.map, uv())[channel];
+      const sampleUV = layer.mask.sampleUV ?? uv();
+      mask = texture(layer.mask.map, sampleUV)[channel];
     }
 
     // Slope mask

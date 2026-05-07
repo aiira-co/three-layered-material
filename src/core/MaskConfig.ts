@@ -5,6 +5,8 @@ import { NoiseConfig } from "../features/noise/NoiseConfig";
 export interface MaskConfig extends NoiseConfig {
   map?: Texture;
   channel?: MaskChannel;
+  /** When set, mask texture is sampled with this TSL UV node instead of mesh `uv()` (e.g. terrain global UV). */
+  sampleUV?: any;
   invert?: boolean;
 
   // Slope-based

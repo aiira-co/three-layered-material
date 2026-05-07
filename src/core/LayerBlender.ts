@@ -1,9 +1,12 @@
-import { Node } from "three/webgpu";
+
 import { LayerData, LayerConfig } from "../types";
 import { ColorBlender } from "../blending/ColorBlender";
 import { NormalBlender } from "../blending/NormalBlender";
 import { ScalarBlender } from "../blending/ScalarBlender";
 import { mix } from "three/tsl";
+
+type Node = any;
+
 
 export class LayerBlender {
   private colorBlender: ColorBlender;

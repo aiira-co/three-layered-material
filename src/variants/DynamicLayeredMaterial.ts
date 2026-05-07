@@ -1,7 +1,10 @@
 import { float, saturate as tslSaturate } from "three/tsl";
 import { LayeredMaterial } from "../LayeredMaterial";
-import { Node } from "three/webgpu";
+
 import { LayerConfig, LayeredMaterialOptions } from "../types";
+
+type Node = any;
+
 
 /**
  * Transition between material states (dry/wet, day/night, clean/dirty)

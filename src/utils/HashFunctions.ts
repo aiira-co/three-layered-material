@@ -1,5 +1,8 @@
 import { vec3, fract, dot, sin, floor, float } from "three/tsl";
-import { Node } from "three/webgpu";
+
+type Node = any;
+
+
 
 /**
  * Hash functions for procedural generation
@@ -11,9 +14,9 @@ import { Node } from "three/webgpu";
  * @returns Pseudo-random vec3 in [0, 1] range
  */
 export function hash2D(p: Node): Node {
-  const p3 = fract(vec3(p.xyx).mul(vec3(0.1031, 0.1030, 0.0973)));
-  const dp = dot(p3, vec3(p3.y, p3.z, p3.x).add(33.33));
-  return fract(vec3(dp, dp, dp).mul(vec3(p3.x, p3.y, p3.z).add(p3.yxz)));
+  const p3: any = fract(vec3((p as any).xyx).mul(vec3(0.1031, 0.1030, 0.0973))) as any;
+  const dp: any = dot(p3 as any, vec3((p3 as any).y, (p3 as any).z, (p3 as any).x).add(33.33) as any) as any;
+  return fract(vec3(dp as any, dp as any, dp as any).mul(vec3((p3 as any).x, (p3 as any).y, (p3 as any).z).add((p3 as any).yxz) as any) as any) as any;
 }
 
 /**
@@ -22,9 +25,9 @@ export function hash2D(p: Node): Node {
  * @returns Pseudo-random vec3 in [0, 1] range
  */
 export function hash3D(p: Node): Node {
-  const p3 = fract(p.mul(vec3(0.1031, 0.1030, 0.0973)));
-  const dp = dot(p3, vec3(p3.y, p3.z, p3.x).add(33.33));
-  return fract(vec3(dp, dp, dp).mul(vec3(p3.x, p3.y, p3.z).add(p3.yxz)));
+  const p3: any = fract((p as any).mul(vec3(0.1031, 0.1030, 0.0973)) as any) as any;
+  const dp: any = dot(p3 as any, vec3((p3 as any).y, (p3 as any).z, (p3 as any).x).add(33.33) as any) as any;
+  return fract(vec3(dp as any, dp as any, dp as any).mul(vec3((p3 as any).x, (p3 as any).y, (p3 as any).z).add((p3 as any).yxz) as any) as any) as any;
 }
 
 /**
@@ -42,6 +45,6 @@ export function hash1D(n: Node): Node {
  * @returns Pseudo-random float
  */
 export function intHash2D(p: Node): Node {
-  const i = floor(p);
-  return hash1D(i.x.add(i.y.mul(157.0)));
+  const i: any = floor(p as any) as any;
+  return hash1D((i as any).x.add((i as any).y.mul(157.0)) as any);
 }

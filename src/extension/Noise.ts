@@ -1,7 +1,10 @@
 import { float, floor, fract, mix, smoothstep, vec2 } from "three/tsl";
-import { Node } from "three/webgpu";
+
 import { GenericMethods } from "./GenericMethods";
 import { LayerConfig } from "../interface";
+
+type Node = any;
+
 
 export class Noise extends GenericMethods {
 
@@ -59,7 +62,7 @@ export class Noise extends GenericMethods {
     const d = this.hash2D(i.add(vec2(1.0, 1.0)));
 
     const u = f.mul(f).mul(f.mul(f.mul(6.0).sub(15.0)).add(10.0)); // quintic curve
-    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+    return mix(mix(a as any, b as any, (u as any).x), mix(c as any, d as any, (u as any).x), (u as any).y) as any;
   }
 
   protected voronoiNoise(uv: Node, octaves: number): Node {

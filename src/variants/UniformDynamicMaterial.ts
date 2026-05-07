@@ -1,7 +1,10 @@
 import { uniform, float, vec3, mul } from "three/tsl";
 import { LayeredMaterial } from "../LayeredMaterial";
 import { LayerConfig, LayeredMaterialOptions } from "../types";
-import { MeshPhysicalNodeMaterial, UniformNode } from "three/webgpu";
+import { MeshPhysicalNodeMaterial } from "three/webgpu";
+
+type UniformNode<T = any> = any;
+
 
 /**
  * UniformDynamicMaterial with real-time property transitions
@@ -56,7 +59,7 @@ export class UniformDynamicMaterial extends LayeredMaterial {
         // Apply color tint to the existing color node
         if (mat.colorNode) {
             const tint = vec3(this._colorTintRUniform, this._colorTintGUniform, this._colorTintBUniform);
-            mat.colorNode = mul(mat.colorNode, tint);
+            mat.colorNode = mul(mat.colorNode as any, tint as any) as any;
         }
 
         this.needsUpdate = true;

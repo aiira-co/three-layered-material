@@ -1,4 +1,4 @@
-import { Node } from "three/webgpu";
+
 import {
   texture,
   vec3,
@@ -8,13 +8,16 @@ import {
   positionLocal,
   normalWorld,
   normalLocal,
-  mix
+  select
 } from "three/tsl";
 import { LayerConfig, LayerData } from "../../types";
 import { Texture, Vector3 } from "three";
 
 import { TextureBombing } from '../bombing/TextureBombing';
 import { EdgeWearCalculator } from '../edge-wear/EdgeWearCalculator';
+
+type Node = any;
+
 
 /**
  * Handles triplanar projection mapping
@@ -96,10 +99,12 @@ export class TriplanarSampler {
    * Calculate triplanar blend weights based on surface normal
    */
   private calculateBlendWeights(normal: Node): Node {
-    const nAbs = abs(normal).normalize();
+    const nAbs = abs(normal);
+    const sharpness = float(4.0);
+    const weighted: any = nAbs.pow(sharpness) as any;
     const eps = float(1e-6);
-    const sum = nAbs.x.add(nAbs.y).add(nAbs.z).add(eps);
-    return nAbs.div(sum); // Normalized weights that sum to 1
+    const sum = (weighted as any).x.add((weighted as any).y).add((weighted as any).z).add(eps);
+    return weighted.div(sum); // Normalized weights that sum to 1
   }
 
   private sampleTriplanarColor(
@@ -118,19 +123,31 @@ export class TriplanarSampler {
       return vec3(colorInput.x, colorInput.y, colorInput.z);
     }
 
-    // Sample from three projections
-    if (useBombing) {
-      const bomber = this._textureBombing;
-      const sX = bomber.sample(colorInput, uvX, bombingBlend);
-      const sY = bomber.sample(colorInput, uvY, bombingBlend);
-      const sZ = bomber.sample(colorInput, uvZ, bombingBlend);
-      return sX.mul(blend.x).add(sY.mul(blend.y)).add(sZ.mul(blend.z)).xyz;
-    }
+    const eps = float(0.001);
+    const useX = blend.x.greaterThan(eps);
+    const useY = blend.y.greaterThan(eps);
+    const useZ = blend.z.greaterThan(eps);
 
-    const sX = texture(colorInput, uvX);
-    const sY = texture(colorInput, uvY);
-    const sZ = texture(colorInput, uvZ);
-    return sX.mul(blend.x).add(sY.mul(blend.y)).add(sZ.mul(blend.z)).xyz;
+    const wx = select(useX, blend.x, float(0.0));
+    const wy = select(useY, blend.y, float(0.0));
+    const wz = select(useZ, blend.z, float(0.0));
+    const weightSum = wx.add(wy).add(wz).max(0.0001);
+
+    const sampleX = useBombing
+      ? this._textureBombing.sample(colorInput, uvX, bombingBlend).xyz
+      : texture(colorInput, uvX).xyz;
+    const sampleY = useBombing
+      ? this._textureBombing.sample(colorInput, uvY, bombingBlend).xyz
+      : texture(colorInput, uvY).xyz;
+    const sampleZ = useBombing
+      ? this._textureBombing.sample(colorInput, uvZ, bombingBlend).xyz
+      : texture(colorInput, uvZ).xyz;
+
+    const sX = select(useX, sampleX, vec3(0.0, 0.0, 0.0));
+    const sY = select(useY, sampleY, vec3(0.0, 0.0, 0.0));
+    const sZ = select(useZ, sampleZ, vec3(0.0, 0.0, 0.0));
+
+    return sX.mul(wx).add(sY.mul(wy)).add(sZ.mul(wz)).div(weightSum);
   }
 
   private sampleTriplanarNormal(
@@ -144,19 +161,29 @@ export class TriplanarSampler {
       return vec3(0, 0, 1);
     }
 
-    // Sample normals from three projections
-    let sX: Node, sY: Node, sZ: Node;
+    const eps = float(0.001);
+    const useX = blend.x.greaterThan(eps);
+    const useY = blend.y.greaterThan(eps);
+    const useZ = blend.z.greaterThan(eps);
 
-    if (useBombing) {
-      const bomber = this._textureBombing;
-      sX = this.unpackNormal(bomber.sample(normalMap, uvX, bombingBlend).xyz);
-      sY = this.unpackNormal(bomber.sample(normalMap, uvY, bombingBlend).xyz);
-      sZ = this.unpackNormal(bomber.sample(normalMap, uvZ, bombingBlend).xyz);
-    } else {
-      sX = this.unpackNormal(texture(normalMap, uvX).xyz);
-      sY = this.unpackNormal(texture(normalMap, uvY).xyz);
-      sZ = this.unpackNormal(texture(normalMap, uvZ).xyz);
-    }
+    const wx = select(useX, blend.x, float(0.0));
+    const wy = select(useY, blend.y, float(0.0));
+    const wz = select(useZ, blend.z, float(0.0));
+
+    // Sample normals from active projections only (branchable select).
+    const packedX = useBombing
+      ? this._textureBombing.sample(normalMap, uvX, bombingBlend).xyz
+      : texture(normalMap, uvX).xyz;
+    const packedY = useBombing
+      ? this._textureBombing.sample(normalMap, uvY, bombingBlend).xyz
+      : texture(normalMap, uvY).xyz;
+    const packedZ = useBombing
+      ? this._textureBombing.sample(normalMap, uvZ, bombingBlend).xyz
+      : texture(normalMap, uvZ).xyz;
+
+    const sX = select(useX, this.unpackNormal(packedX), vec3(0.0, 0.0, 0.0));
+    const sY = select(useY, this.unpackNormal(packedY), vec3(0.0, 0.0, 0.0));
+    const sZ = select(useZ, this.unpackNormal(packedZ), vec3(0.0, 0.0, 0.0));
 
     // Reorient normals to world/object space
     // X-axis projection (YZ plane): rotate tangent space
@@ -169,9 +196,9 @@ export class TriplanarSampler {
     const worldNZ = vec3(sZ.x, sZ.y, sZ.z);
 
     // Blend and normalize
-    const blended = worldNX.mul(blend.x)
-      .add(worldNY.mul(blend.y))
-      .add(worldNZ.mul(blend.z));
+    const blended = worldNX.mul(wx)
+      .add(worldNY.mul(wy))
+      .add(worldNZ.mul(wz));
 
     return blended.normalize();
   }
@@ -185,17 +212,31 @@ export class TriplanarSampler {
   ): { roughness: Node; metalness: Node; ao: Node } {
     // Check for ARM map first
     if (layer.map?.arm) {
-      const armX = useBombing
-        ? this._textureBombing.sample(layer.map.arm, uvX, bombingBlend)
-        : texture(layer.map.arm, uvX);
-      const armY = useBombing
-        ? this._textureBombing.sample(layer.map.arm, uvY, bombingBlend)
-        : texture(layer.map.arm, uvY);
-      const armZ = useBombing
-        ? this._textureBombing.sample(layer.map.arm, uvZ, bombingBlend)
-        : texture(layer.map.arm, uvZ);
+      const eps = float(0.001);
+      const useX = blend.x.greaterThan(eps);
+      const useY = blend.y.greaterThan(eps);
+      const useZ = blend.z.greaterThan(eps);
 
-      const arm = armX.mul(blend.x).add(armY.mul(blend.y)).add(armZ.mul(blend.z));
+      const wx = select(useX, blend.x, float(0.0));
+      const wy = select(useY, blend.y, float(0.0));
+      const wz = select(useZ, blend.z, float(0.0));
+      const weightSum = wx.add(wy).add(wz).max(0.0001);
+
+      const armX = useBombing
+        ? this._textureBombing.sample(layer.map.arm, uvX, bombingBlend).xyz
+        : texture(layer.map.arm, uvX).xyz;
+      const armY = useBombing
+        ? this._textureBombing.sample(layer.map.arm, uvY, bombingBlend).xyz
+        : texture(layer.map.arm, uvY).xyz;
+      const armZ = useBombing
+        ? this._textureBombing.sample(layer.map.arm, uvZ, bombingBlend).xyz
+        : texture(layer.map.arm, uvZ).xyz;
+
+      const sampleX = select(useX, armX, vec3(0.0, 0.0, 0.0));
+      const sampleY = select(useY, armY, vec3(0.0, 0.0, 0.0));
+      const sampleZ = select(useZ, armZ, vec3(0.0, 0.0, 0.0));
+
+      const arm = sampleX.mul(wx).add(sampleY.mul(wy)).add(sampleZ.mul(wz)).div(weightSum);
 
       return {
         ao: arm.x,
@@ -233,18 +274,31 @@ export class TriplanarSampler {
       return float(fallback);
     }
 
-    if (useBombing) {
-      const bomber = this._textureBombing;
-      const sX = bomber.sample(map, uvX, bombingBlend).x;
-      const sY = bomber.sample(map, uvY, bombingBlend).x;
-      const sZ = bomber.sample(map, uvZ, bombingBlend).x;
-      return sX.mul(blend.x).add(sY.mul(blend.y)).add(sZ.mul(blend.z));
-    }
+    const eps = float(0.001);
+    const useX = blend.x.greaterThan(eps);
+    const useY = blend.y.greaterThan(eps);
+    const useZ = blend.z.greaterThan(eps);
 
-    const sX = texture(map, uvX).x;
-    const sY = texture(map, uvY).x;
-    const sZ = texture(map, uvZ).x;
-    return sX.mul(blend.x).add(sY.mul(blend.y)).add(sZ.mul(blend.z));
+    const wx = select(useX, blend.x, float(0.0));
+    const wy = select(useY, blend.y, float(0.0));
+    const wz = select(useZ, blend.z, float(0.0));
+    const weightSum = wx.add(wy).add(wz).max(0.0001);
+
+    const sXRaw = useBombing
+      ? this._textureBombing.sample(map, uvX, bombingBlend).x
+      : texture(map, uvX).x;
+    const sYRaw = useBombing
+      ? this._textureBombing.sample(map, uvY, bombingBlend).x
+      : texture(map, uvY).x;
+    const sZRaw = useBombing
+      ? this._textureBombing.sample(map, uvZ, bombingBlend).x
+      : texture(map, uvZ).x;
+
+    const sX = select(useX, sXRaw, float(0.0));
+    const sY = select(useY, sYRaw, float(0.0));
+    const sZ = select(useZ, sZRaw, float(0.0));
+
+    return sX.mul(wx).add(sY.mul(wy)).add(sZ.mul(wz)).div(weightSum);
   }
 
   private unpackNormal(normalSample: Node): Node {

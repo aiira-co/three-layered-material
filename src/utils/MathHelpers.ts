@@ -1,5 +1,8 @@
 import { float, clamp, smoothstep as tslSmoothstep } from "three/tsl";
-import { Node } from "three/webgpu";
+
+type Node = any;
+
+
 
 /**
  * Math helper functions for TSL operations

@@ -1,9 +1,12 @@
-import { Node } from "three/webgpu";
+
 import { vec3, float, texture, uv } from "three/tsl";
 import { LayerConfig, LayerData, NodeMaterialInput } from "../types";
 import { Texture } from "three";
 import { EdgeWearCalculator } from '../features/edge-wear/EdgeWearCalculator';
 import { TextureSampler } from "./TextureSampler";
+
+type Node = any;
+
 
 /**
  * Extracts shader nodes and textures from existing Three.js materials

@@ -1,10 +1,13 @@
-import { Node } from "three/webgpu";
+
 import { texture, uv, vec3, float, mix, saturate } from "three/tsl";
 import { LayerConfig, LayerData } from "../types";
 import { Texture, Vector3 } from "three";
 import { TextureBombing } from '../features/bombing/TextureBombing';
 import { ParallaxMapper } from '../features/parallax/ParallaxMapper';
 import { EdgeWearCalculator } from '../features/edge-wear/EdgeWearCalculator';
+
+type Node = any;
+
 
 /**
  * Samples textures with support for UV mapping, texture bombing, and parallax

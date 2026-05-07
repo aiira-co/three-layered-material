@@ -1,9 +1,12 @@
-import { Node } from "three/webgpu";
+
 import { LayerConfig, LayerData } from "./../types";
 import { MaterialExtractor } from "./../input/MaterialExtractor";
 import { TextureSampler } from "./../input/TextureSampler";
 import { DefaultLayerFactory } from "./../input/DefaultLayerFactory";
 import { TriplanarSampler } from "./../features/triplanar/TriplanarSampler";
+
+type Node = any;
+
 
 export class MaterialSampler {
   private materialExtractor: MaterialExtractor;

@@ -1,4 +1,4 @@
-import { Node } from "three/webgpu";
+
 import {
   vec2,
   vec3,
@@ -10,10 +10,14 @@ import {
   mix,
   smoothstep,
   float,
-  texture
+  texture,
+  select
 } from "three/tsl";
 import { Texture } from "three";
 import { BombingConfig } from "./BombingConfig";
+
+type Node = any;
+
 
 /**
  * Texture bombing (stochastic sampling) to eliminate tiling patterns
@@ -36,39 +40,62 @@ export class TextureBombing {
     const useRotation = config?.rotation ?? true;
     const useOffset = config?.offset ?? true;
 
-    // Get integer and fractional parts of UV
-    const uvScaled = uvCoords.mul(1.0);
-    const iuv = floor(uvScaled);
-    const fuv = fract(uvScaled);
+    // Cell decomposition
+    const cellUV = floor(uvCoords);
+    const localUV = fract(uvCoords);
 
-    // Generate random values for this cell
-    const hash = this.hash2D(iuv);
+    // Find two closest jittered cell features (Voronoi-style) to reduce seams.
+    let nearestDist: Node = float(1e6);
+    let secondDist: Node = float(1e6);
+    let nearestCell: Node = cellUV;
+    let secondCell: Node = cellUV;
+    let nearestHash: Node = this.hash2D(cellUV);
+    let secondHash: Node = nearestHash;
 
-    // Calculate transformed UV for main sample
-    const uv1 = this.transformUV(
-      fuv,
-      iuv,
-      hash,
-      useRotation,
-      useOffset
-    );
-    const sample1 = texture(map, uv1);
+    const offsets = [
+      vec2(-1, -1), vec2(0, -1), vec2(1, -1),
+      vec2(-1, 0), vec2(0, 0), vec2(1, 0),
+      vec2(-1, 1), vec2(0, 1), vec2(1, 1)
+    ];
 
-    // Calculate transformed UV for neighbor sample
-    const neighborOffset = vec2(1, 0);
-    const hash2 = this.hash2D(iuv.add(neighborOffset));
-    const uv2 = this.transformUV(
-      fuv,
-      iuv.add(neighborOffset),
-      hash2,
-      useRotation,
-      useOffset
-    );
-    const sample2 = texture(map, uv2);
+    for (const offset of offsets) {
+      const candidateCell = cellUV.add(offset);
+      const candidateHash = this.hash2D(candidateCell);
 
-    // Blend between samples based on position within cell
-    const blendFactor = smoothstep(float(0.3), float(0.7), fuv.x).mul(blendAmount);
-    return mix(sample1, sample2, blendFactor);
+      // Jitter feature point within candidate cell.
+      const feature = offset.add(candidateHash.xy.mul(0.8).add(0.1));
+      const delta = localUV.sub(feature);
+      const dist = dot(delta, delta);
+
+      const isNewNearest = dist.lessThan(nearestDist);
+      const isNewSecond = dist.lessThan(secondDist).and(dist.greaterThanEqual(nearestDist));
+
+      // Shift nearest to second when a new nearest is found.
+      secondDist = select(isNewNearest, nearestDist, secondDist);
+      secondCell = select(isNewNearest, nearestCell, secondCell);
+      secondHash = select(isNewNearest, nearestHash, secondHash);
+
+      nearestDist = select(isNewNearest, dist, nearestDist);
+      nearestCell = select(isNewNearest, candidateCell, nearestCell);
+      nearestHash = select(isNewNearest, candidateHash, nearestHash);
+
+      secondDist = select(isNewSecond, dist, secondDist);
+      secondCell = select(isNewSecond, candidateCell, secondCell);
+      secondHash = select(isNewSecond, candidateHash, secondHash);
+    }
+
+    const uvA = this.transformUV(localUV, nearestCell, nearestHash, useRotation, useOffset);
+    const uvB = this.transformUV(localUV, secondCell, secondHash, useRotation, useOffset);
+    const sampleA = texture(map, uvA);
+    const sampleB = texture(map, uvB);
+
+    // Blend only near Voronoi edges; keep nearest sample in cell interiors.
+    const edgeDistance = secondDist.sub(nearestDist).max(0.0);
+    const edgeWidth = float(0.05).add(float(blendAmount).mul(0.35));
+    const edgeFactor = smoothstep(float(0.0), edgeWidth, edgeDistance);
+    const neighborMix = float(1.0).sub(edgeFactor).mul(float(0.5).mul(blendAmount));
+
+    return mix(sampleA, sampleB, neighborMix);
   }
 
   /**

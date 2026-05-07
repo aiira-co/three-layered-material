@@ -1,6 +1,9 @@
-import { Node } from "three/webgpu";
-import { mix, float, vec3, dot } from "three/tsl";
+
+import { mix, float, vec3, dot, select, saturate } from "three/tsl";
 import { NormalBlendMode } from "./BlendModeConfig";
+
+type Node = any;
+
 
 /**
  * Handles normal map blending with various techniques
@@ -64,12 +67,18 @@ export class NormalBlender {
    * Based on: "Blending in Detail" by Colin Barré-Brisebois
    */
   private reorientedBlend(n1: Node, n2: Node, blend: Node): Node {
-    // Interpolate between base normal and blended result
-    const t = n1.add(vec3(0.0, 0.0, 1.0));
-    const u = n2.mul(vec3(-1.0, -1.0, 1.0));
-    const r = t.mul(dot(t, u).div(t.z)).sub(u);
+    const blendAmount = saturate(blend);
+    const base = n1.normalize();
+    const detail = n2.normalize();
 
-    return mix(n1, r, blend);
+    // Fade detail toward a flat normal before RNM reorientation.
+    const detailBlended = mix(vec3(0.0, 0.0, 1.0), detail, blendAmount);
+
+    const t = base.add(vec3(0.0, 0.0, 1.0));
+    const u = detailBlended.mul(vec3(-1.0, -1.0, 1.0));
+    const safeZ = t.z.abs().max(0.0001);
+
+    return t.mul(dot(t, u).div(safeZ)).sub(u);
   }
 
   /**
@@ -88,13 +97,13 @@ export class NormalBlender {
    */
   private udnBlend(n1: Node, n2: Node, blend: Node): Node {
     // Blend XY components
-    const blendedXY = mix(n1.xy, n2.xy, blend);
+    const blendedXY: any = mix((n1 as any).xy, (n2 as any).xy, blend as any) as any;
 
     // Reconstruct Z from XY
-    const xyDot = blendedXY.dot(blendedXY);
+    const xyDot: any = (blendedXY as any).dot(blendedXY as any) as any;
     const z = float(1.0).sub(xyDot).max(0.0).sqrt();
 
-    return vec3(blendedXY.x, blendedXY.y, z);
+    return vec3((blendedXY as any).x, (blendedXY as any).y, z as any);
   }
 
   /**
@@ -125,14 +134,14 @@ export class NormalBlender {
    */
   private overlayBlend(n1: Node, n2: Node, blend: Node): Node {
     // Apply overlay-style blending to XY components
-    const overlayXY = this.overlayComponents(n1.xy, n2.xy);
-    const blendedXY = mix(n1.xy, overlayXY, blend);
+    const overlayXY: any = this.overlayComponents((n1 as any).xy, (n2 as any).xy) as any;
+    const blendedXY: any = mix((n1 as any).xy, overlayXY as any, blend as any) as any;
 
     // Reconstruct Z
-    const xyDot = blendedXY.dot(blendedXY);
+    const xyDot: any = (blendedXY as any).dot(blendedXY as any) as any;
     const z = float(1.0).sub(xyDot).max(0.0).sqrt();
 
-    return vec3(blendedXY.x, blendedXY.y, z);
+    return vec3((blendedXY as any).x, (blendedXY as any).y, z as any);
   }
 
   private overlayComponents(base: Node, top: Node): Node {
@@ -142,7 +151,7 @@ export class NormalBlender {
     );
 
     const condition = base.lessThan(0.5);
-    return mix(screen, multiply, condition);
+    return select(condition, multiply, screen);
   }
 
   /**

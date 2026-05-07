@@ -1,4 +1,4 @@
-import { Node } from "three/webgpu";
+
 import {
   float,
   vec3,
@@ -14,6 +14,9 @@ import {
 } from "three/tsl";
 import { EdgeWearConfig } from "./EdgeWearConfig";
 import { LayerData } from "../../types";
+
+type Node = any;
+
 
 /**
  * Calculates edge wear effects for realistic weathering

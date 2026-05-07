@@ -1,6 +1,9 @@
-import { Node } from "three/webgpu";
+
 import { mix, float, saturate, pow } from "three/tsl";
 import { ColorBlendMode } from "./BlendModeConfig";
+
+type Node = any;
+
 
 /**
  * Handles all color blending operations between layers

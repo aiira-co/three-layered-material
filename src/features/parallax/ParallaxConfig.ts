@@ -3,6 +3,15 @@ export interface ParallaxConfig {
   scale?: number;
   steps?: number;
   maxOffset?: number;
-  method?: 'pom' | 'steep' | 'simple';
+  method?: 'pom' | 'spom' | 'steep' | 'simple';
   quality?: 'low' | 'medium' | 'high';
+  refinementSteps?: number;
+  referencePlane?: number;
+  minViewZ?: number;
+  selfShadow?: boolean;
+  horizonMask?: boolean;
+  depthOffset?: boolean;
+  shadowSteps?: number;
+  shadowStrength?: number;
+  horizonStrength?: number;
 }

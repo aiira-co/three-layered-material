@@ -1,6 +1,9 @@
 import { float, mix, vec3 } from "three/tsl";
-import { Node } from "three/webgpu";
+
 import { EdgeWear } from "./EdgeWear";
+
+type Node = any;
+
 
 export class BlendTexture extends EdgeWear {
 

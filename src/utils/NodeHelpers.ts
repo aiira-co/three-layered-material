@@ -1,5 +1,8 @@
 import { vec3, float, normalize } from "three/tsl";
-import { Node } from "three/webgpu";
+
+type Node = any;
+
+
 
 /**
  * Helper functions for working with TSL Nodes

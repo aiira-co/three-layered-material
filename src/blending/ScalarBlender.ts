@@ -1,6 +1,9 @@
-import { Node } from "three/webgpu";
-import { mix, float, saturate } from "three/tsl";
+
+import { mix, float, saturate, select } from "three/tsl";
 import { ScalarBlendMode } from "./BlendModeConfig";
+
+type Node = any;
+
 
 /**
  * Handles blending of scalar properties (roughness, metalness, AO)
@@ -83,7 +86,7 @@ export class ScalarBlender {
     );
 
     const condition = base.lessThan(0.5);
-    return mix(screen, multiply, condition);
+    return select(condition, multiply, screen);
   }
 
   private add(base: Node, top: Node): Node {

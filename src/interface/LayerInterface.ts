@@ -1,6 +1,9 @@
 import { Texture, Vector3 } from "three";
 import { BlendModeConfig } from "./BlendModeConfigInterface";
-import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, Node } from "three/webgpu";
+import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
+
+type Node = any;
+
 
 
 // Type definitions

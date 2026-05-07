@@ -1,8 +1,11 @@
 import { Texture } from "three";
-import { Node } from "three/webgpu";
+
 import { vec3, float } from "three/tsl";
 import { LayerConfig, LayerData } from "../types";
 import { EdgeWearCalculator } from '../features/edge-wear/EdgeWearCalculator';
+
+type Node = any;
+
 
 /**
  * Creates default layers from solid colors and values

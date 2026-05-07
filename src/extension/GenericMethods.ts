@@ -1,5 +1,8 @@
 import { dot, fract, vec3 } from "three/tsl";
-import { MeshPhysicalNodeMaterial, Node } from "three/webgpu";
+import { MeshPhysicalNodeMaterial } from "three/webgpu";
+
+type Node = any;
+
 
 export class GenericMethods extends MeshPhysicalNodeMaterial {
    /**

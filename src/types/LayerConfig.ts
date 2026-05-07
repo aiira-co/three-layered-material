@@ -33,6 +33,13 @@ export interface HeightBlendConfig {
   sharpness?: number;
 }
 
+export interface ScreenSpaceDisplacementConfig {
+  enabled?: boolean;
+  strength?: number;
+  maxPixels?: number;
+  quality?: 'low' | 'medium' | 'high';
+}
+
 export interface LayerConfig {
   name?: string;
 
@@ -59,6 +66,7 @@ export interface LayerConfig {
   triplanar?: TriplanarConfig;
   textureBombing?: BombingConfig;
   parallax?: ParallaxConfig;
+  screenSpaceDisplacement?: ScreenSpaceDisplacementConfig;
   edgeWear?: EdgeWearConfig;
   mask?: MaskConfig;
   heightBlend?: HeightBlendConfig;

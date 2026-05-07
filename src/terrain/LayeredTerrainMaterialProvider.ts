@@ -1,5 +1,5 @@
 import { Texture, Material } from "three";
-import { MeshPhysicalNodeMaterial, Node, UniformNode } from "three/webgpu";
+import { MeshPhysicalNodeMaterial } from "three/webgpu";
 import {
     texture,
     uv,
@@ -17,6 +17,10 @@ import {
 } from "three/tsl";
 import { LayeredMaterial } from "../LayeredMaterial";
 import { LayeredMaterialOptions, LayerConfig, LayerData } from "../types";
+
+type Node = any;
+type UniformNode<T = any> = any;
+
 
 /**
  * Context for terrain material creation
@@ -114,7 +118,7 @@ export class LayeredTerrainMaterialProvider implements TerrainProviderInterface 
         const material = new MeshPhysicalNodeMaterial();
 
         // Get per-instance UV transform
-        const instUVTransform = attribute('instanceUVTransform', 'vec3');
+        const instUVTransform: any = attribute('instanceUVTransform', 'vec3');
         const instUVScale = instUVTransform.x;
         const instUVOffset = vec2(instUVTransform.y, instUVTransform.z);
 

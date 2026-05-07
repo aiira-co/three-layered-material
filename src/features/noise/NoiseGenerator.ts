@@ -1,4 +1,4 @@
-import { Node } from "three/webgpu";
+
 import {
   float,
   vec2,
@@ -12,6 +12,9 @@ import {
   abs
 } from "three/tsl";
 import { NoiseConfig } from "./NoiseConfig";
+
+type Node = any;
+
 
 /**
  * Generates procedural noise for masking and texture variation
@@ -99,10 +102,10 @@ export class NoiseGenerator {
 
     // Bilinear interpolation
     return mix(
-      mix(a.x, b.x, u.x),
-      mix(c.x, d.x, u.x),
-      u.y
-    );
+      mix((a as any).x, (b as any).x, (u as any).x),
+      mix((c as any).x, (d as any).x, (u as any).x),
+      (u as any).y
+    ) as any;
   }
 
   /**
