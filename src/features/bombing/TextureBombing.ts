@@ -37,6 +37,10 @@ export class TextureBombing {
     blendAmount: number = 0.5,
     config?: BombingConfig
   ): Node {
+    if ((config?.mode ?? 'voronoi') === 'hex') {
+      return this.sampleHex(map, uvCoords, blendAmount, config);
+    }
+
     const useRotation = config?.rotation ?? true;
     const useOffset = config?.offset ?? true;
 
@@ -84,8 +88,8 @@ export class TextureBombing {
       secondHash = select(isNewSecond, candidateHash, secondHash);
     }
 
-    const uvA = this.transformUV(localUV, nearestCell, nearestHash, useRotation, useOffset);
-    const uvB = this.transformUV(localUV, secondCell, secondHash, useRotation, useOffset);
+    const uvA = this.transformUV(localUV, nearestCell, nearestHash, useRotation, useOffset, config?.scaleJitter ?? 0.0).uv;
+    const uvB = this.transformUV(localUV, secondCell, secondHash, useRotation, useOffset, config?.scaleJitter ?? 0.0).uv;
     const sampleA = texture(map, uvA);
     const sampleB = texture(map, uvB);
 
@@ -106,9 +110,12 @@ export class TextureBombing {
     integerUV: Node,
     hash: Node,
     useRotation: boolean,
-    useOffset: boolean
-  ): Node {
-    let uv = fractionalUV;
+    useOffset: boolean,
+    scaleJitter: number = 0.0
+  ): { uv: Node; angle: Node; scale: Node } {
+    const jitterScale = float(1.0).add(hash.y.sub(0.5).mul(float(scaleJitter)));
+    let uv = fractionalUV.sub(0.5).div(jitterScale).add(0.5);
+    let angle: Node = float(0.0);
 
     // Random offset within cell
     let offset: Node = vec2(0, 0);
@@ -118,7 +125,7 @@ export class TextureBombing {
 
     // Random rotation
     if (useRotation) {
-      const angle = hash.z.mul(6.28318530718); // 0 to 2*PI
+      angle = hash.z.mul(6.28318530718); // 0 to 2*PI
       const cosA = cos(angle);
       const sinA = sin(angle);
 
@@ -130,7 +137,7 @@ export class TextureBombing {
     }
 
     // Add offset and tile
-    return uv.add(offset).add(integerUV);
+    return { uv: uv.add(offset).add(integerUV), angle, scale: jitterScale };
   }
 
   /**
@@ -160,7 +167,7 @@ export class TextureBombing {
       const cellUV = iuv.add(offset);
       const hash = this.hash2D(cellUV);
 
-      const transformedUV = this.transformUV(fuv, cellUV, hash, true, true);
+      const transformedUV = this.transformUV(fuv, cellUV, hash, true, true).uv;
       const sample = texture(map, transformedUV);
 
       // Weight based on distance to cell center
@@ -184,29 +191,68 @@ export class TextureBombing {
     return fract(vec3(dp, dp, dp).mul(vec3(p3.x, p3.y, p3.z).add(p3.yxz)));
   }
 
-  /**
-   * Hex grid bombing for more organic patterns
-   */
-  sampleHex(map: Texture, uvCoords: Node, blendAmount: number = 0.5): Node {
-    // Convert to hex grid coordinates
-    const hexUV = this.uvToHex(uvCoords);
-
-    // Sample from hex cell
-    const hash = this.hash2D(floor(hexUV));
-    const transformedUV = this.transformUV(
-      fract(hexUV),
-      floor(hexUV),
-      hash,
-      true,
-      true
-    );
-
-    return texture(map, transformedUV);
-  }
-
   private uvToHex(uv: Node): Node {
     const q = uv.x;
     const r = uv.y.mul(1.1547).sub(uv.x.mul(0.5774));
     return vec2(q, r);
+  }
+
+  /**
+   * Hex-grid scatter with a second neighbor sample near cell edges.
+   */
+  sampleHex(map: Texture, uvCoords: Node, blendAmount: number = 0.5, config?: BombingConfig): Node {
+    const pair = this.getHexScatterPair(uvCoords, blendAmount, config);
+    return mix(texture(map, pair.uvA), texture(map, pair.uvB), pair.blend);
+  }
+
+  /**
+   * Normal-map variant that rotates tangent-space normals with the sampled cell.
+   */
+  sampleNormal(map: Texture, uvCoords: Node, blendAmount: number = 0.5, config?: BombingConfig): Node {
+    const pair = this.getHexScatterPair(uvCoords, blendAmount, config);
+    const sampleA = texture(map, pair.uvA).xyz.mul(2.0).sub(1.0);
+    const sampleB = texture(map, pair.uvB).xyz.mul(2.0).sub(1.0);
+    const shouldCorrect = config?.normalCorrection ?? ((config?.mode ?? 'voronoi') === 'hex');
+    const normalA = shouldCorrect ? this.rotateNormalForCell(sampleA, pair.angleA) : sampleA;
+    const normalB = shouldCorrect ? this.rotateNormalForCell(sampleB, pair.angleB) : sampleB;
+    return (mix(normalA, normalB, pair.blend) as any).normalize();
+  }
+
+  private getHexScatterPair(
+    uvCoords: Node,
+    blendAmount: number = 0.5,
+    config?: BombingConfig
+  ): { uvA: Node; uvB: Node; angleA: Node; angleB: Node; blend: Node } {
+    const hexUV = this.uvToHex(uvCoords);
+    const cell = floor(hexUV);
+    const localUV = fract(hexUV);
+    const hashA = this.hash2D(cell);
+    const neighborCell = cell.add(vec2(1, 0));
+    const hashB = this.hash2D(neighborCell);
+    const useRotation = config?.rotation ?? true;
+    const useOffset = config?.offset ?? true;
+    const scaleJitter = config?.scaleJitter ?? 0.0;
+    const transformA = this.transformUV(localUV, cell, hashA, useRotation, useOffset, scaleJitter);
+    const transformB = this.transformUV(localUV, neighborCell, hashB, useRotation, useOffset, scaleJitter);
+
+    const local = localUV as any;
+    const interiorX = smoothstep(float(0.0), float(0.18), local.x)
+      .mul(float(1.0).sub(smoothstep(float(0.82), float(1.0), local.x)));
+    const interiorY = smoothstep(float(0.0), float(0.18), local.y)
+      .mul(float(1.0).sub(smoothstep(float(0.82), float(1.0), local.y)));
+    const edgeMask = float(1.0).sub(interiorX.mul(interiorY));
+    const blend = edgeMask.mul(float(blendAmount).mul(0.5)).clamp(0.0, 1.0);
+
+    return { uvA: transformA.uv, uvB: transformB.uv, angleA: transformA.angle, angleB: transformB.angle, blend };
+  }
+
+  private rotateNormalForCell(normal: Node, angle: Node): Node {
+    const cosA = cos(angle);
+    const sinA = sin(angle);
+    return vec3(
+      normal.x.mul(cosA).sub(normal.y.mul(sinA)),
+      normal.x.mul(sinA).add(normal.y.mul(cosA)),
+      normal.z
+    ).normalize();
   }
 }

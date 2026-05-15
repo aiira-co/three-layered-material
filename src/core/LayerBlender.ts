@@ -3,7 +3,7 @@ import { LayerData, LayerConfig } from "../types";
 import { ColorBlender } from "../blending/ColorBlender";
 import { NormalBlender } from "../blending/NormalBlender";
 import { ScalarBlender } from "../blending/ScalarBlender";
-import { mix } from "three/tsl";
+import { float, mix, saturate } from "three/tsl";
 
 type Node = any;
 
@@ -68,8 +68,14 @@ export class LayerBlender {
     mask: Node,
     config: LayerConfig
   ): Node {
-    // Height blend logic
-    // Return computed blend factor
-    return mask; // Simplified
+    if (!config.heightBlend?.enable || !baseLayer.height || !topLayer.height) {
+      return mask;
+    }
+
+    const strength = float(config.heightBlend.strength ?? 1.0);
+    const sharpness = float(config.heightBlend.sharpness ?? 4.0);
+    const heightPriority = (topLayer.height as Node).sub(baseLayer.height).mul(strength);
+
+    return saturate(mask.add(heightPriority).mul(sharpness));
   }
 }

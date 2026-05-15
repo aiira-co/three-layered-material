@@ -18,6 +18,8 @@ yarn add @interverse/three-layered-material
 - Added SPOM-style parallax support with guarded binary refinement and `1 - height` depth-space ray marching.
 - Expanded per-layer parallax controls with `refinementSteps`, `referencePlane`, `minViewZ`, `maxOffset`, `selfShadow`, `horizonMask`, and `depthOffset` metadata.
 - Added `screenSpaceDisplacement` layer metadata so host engines can opt layers into an external SSDM/post-processing resolve.
+- Added Hex Scatter texture bombing mode with two-cell edge blending, random cell transforms, scale jitter, and tangent-space normal rotation correction.
+- Height-based layer blending now uses both layer height maps, `strength`, and `sharpness` to bias transitions toward the higher surface instead of behaving like ordinary alpha blending.
 
 ## 🎯 What It Is
 
@@ -244,9 +246,19 @@ Eliminate tiling artifacts with stochastic sampling:
 ```typescript
 textureBombing: {
   enable: true,
-  blend: 0.6,  // Blend factor between samples (0-1)
+  mode: 'hex',          // 'voronoi' | 'hex'
+  blend: 0.6,           // Blend amount between nearby samples (0-1)
+  rotation: true,       // Randomly rotate each cell
+  offset: true,         // Randomly offset each cell
+  scaleJitter: 0.2,     // Random per-cell scale variation
+  normalCorrection: true, // Rotate normal maps with the randomized cell
+  heightBlend: true,    // Request height-aware edge treatment where supported
 }
 ```
+
+Use `mode: 'voronoi'` to preserve the older stochastic bombing behavior. Use `mode: 'hex'` when repeated floor, rock, tile, bark, or terrain textures need less visible tiling while keeping color, normal, roughness, AO, metalness, and height channels aligned.
+
+When random rotation is enabled on a normal map, enable `normalCorrection` so highlights rotate with the texture details instead of sliding in the wrong tangent-space direction.
 
 ### 3. Triplanar Mapping
 Seamless projection on complex geometry:
@@ -255,8 +267,12 @@ Seamless projection on complex geometry:
 triplanar: {
   enable: true,
   useWorldPosition: true,  // Use world or object space
+  sharpness: 12.0,         // Higher = tighter axis transitions
+  cutoff: 0.08,            // Removes weak off-axis projection bleed
 }
 ```
+
+For directional textures, raise `sharpness` and add a small `cutoff` to reduce faint lines from the other projection planes. Good starting values are `sharpness: 8-16` and `cutoff: 0.05-0.12`.
 
 ### 4. Advanced Masking
 
@@ -313,6 +329,14 @@ heightBlend: {
 }
 ```
 
+Height blending is evaluated as:
+
+```typescript
+blendFactor = saturate((mask + (topHeight - baseHeight) * strength) * sharpness);
+```
+
+Both the base and top layers need `map.height` for the height difference to affect the transition. If either height input is missing, the layer falls back to the normal mask factor.
+
 ### 7. Parallax Occlusion Mapping and SPOM
 Create depth effects without geometry displacement. Use geometry for large shape and silhouette, then use per-layer parallax for small relief and surface detail:
 
@@ -363,9 +387,17 @@ const terrainMaterial = new LayeredMaterial({
   layers: [
     {
       name: 'Grass Base',
-      map: { color: grassColor, normal: grassNormal, roughness: grassRoughness },
-      triplanar: { enable: true },
-      textureBombing: { enable: true, blend: 0.6 },
+      map: { color: grassColor, normal: grassNormal, roughness: grassRoughness, height: grassHeight },
+      triplanar: { enable: true, sharpness: 12, cutoff: 0.08 },
+      textureBombing: {
+        enable: true,
+        mode: 'hex',
+        blend: 0.6,
+        rotation: true,
+        offset: true,
+        scaleJitter: 0.2,
+        normalCorrection: true,
+      },
       scale: 0.5,
     },
     {
@@ -378,7 +410,16 @@ const terrainMaterial = new LayeredMaterial({
         useNoise: true,
         noiseType: 'voronoi',
       },
-      heightBlend: { enable: true, strength: 3.0 },
+      textureBombing: {
+        enable: true,
+        mode: 'hex',
+        blend: 0.5,
+        rotation: true,
+        offset: true,
+        scaleJitter: 0.15,
+        normalCorrection: true,
+      },
+      heightBlend: { enable: true, strength: 3.0, sharpness: 4.0 },
       blendMode: { normal: 'rnb' },
     },
     {
@@ -619,6 +660,15 @@ const terrainMaterial = new LayeredTerrainMaterialProvider({
         normal: grassNormal,
         height: grassHeight  // Used for height blending
       },
+      textureBombing: {
+        enable: true,
+        mode: 'hex',
+        blend: 0.55,
+        rotation: true,
+        offset: true,
+        scaleJitter: 0.2,
+        normalCorrection: true
+      },
       scale: 0.5
     },
     {
@@ -633,7 +683,16 @@ const terrainMaterial = new LayeredTerrainMaterialProvider({
         slopeMin: 0.4,
         slopeMax: 0.8
       },
-      heightBlend: { enable: true, strength: 2.0 }
+      textureBombing: {
+        enable: true,
+        mode: 'hex',
+        blend: 0.5,
+        rotation: true,
+        offset: true,
+        scaleJitter: 0.15,
+        normalCorrection: true
+      },
+      heightBlend: { enable: true, strength: 2.0, sharpness: 4.0 }
     },
     {
       name: 'Snow',
@@ -663,7 +722,8 @@ terrain.setMaterialProvider(terrainMaterial);
 ### Features
 - **Slope-based layer masking** - Grass on flat, rock on slopes
 - **Height-based layer masking** - Snow above certain altitude
-- **Layer height blending** - Mix layer heights into displacement for detail
+- **Layer height blending** - Bias material transitions and terrain displacement toward higher detail
+- **Hex Scatter texture bombing** - Break visible tiling while keeping PBR texture channels aligned
 - **Full layered material features** - Edge wear, texture bombing, parallax, etc.
 
 ---

@@ -1,6 +1,11 @@
 import { Texture } from "three/webgpu";
 import {
+  Fn,
+  Loop,
   If,
+  Break,
+  dFdx,
+  dFdy,
   float,
   vec3,
   texture,
@@ -9,10 +14,9 @@ import {
   normalWorld,
   tangentWorld,
   mat3,
-  mix,
   max as tslMax,
-  select,
-  saturate,
+  min as tslMin,
+  length,
   parallaxDirection
 } from "three/tsl";
 import { ParallaxConfig } from "./ParallaxConfig";
@@ -25,8 +29,17 @@ export interface ParallaxMappingResult {
 }
 
 /**
- * Parallax Occlusion Mapping with proper height texture sampling
- * Supports simple offset and full POM with ray marching
+ * Parallax Occlusion Mapping with proper height texture sampling.
+ *
+ * All ray-march paths use TSL `Loop` + `If` + `Break` + `.assign()` mutating
+ * single VarNodes declared once outside the loop. The previous JS-unrolled
+ * `select` chain produced one VarNode per JS step that referenced the
+ * previous step's VarNode, and at higher quality (`steps >= 32`) that long
+ * chain made Three's WGSL builder emit
+ *   `nodeVarN = ( nodeVarM - /* Recursion detected. *\/ )`
+ * fragments and refuse to compile the fragment shader. The Loop + assign
+ * pattern (from Promontis' POM reference) avoids that entirely and emits a
+ * real for-loop in the shader.
  */
 export class ParallaxMapper {
   /**
@@ -64,8 +77,8 @@ export class ParallaxMapper {
   }
 
   /**
-   * Simple parallax - single offset based on height
-   * Fast but low quality, good for subtle effects
+   * Simple parallax - single offset based on height.
+   * Fast but low quality, good for subtle effects. No loop.
    */
   private simpleParallax(uv: Node, heightMap: Texture, config: ParallaxConfig, scale: number): Node {
     const uvScale = float(Math.max(scale, 0.0001));
@@ -73,12 +86,10 @@ export class ParallaxMapper {
     const maxOffset = float(config.maxOffset ?? 0.1).div(uvScale);
     const viewDir = this.getViewDirTangentSpace();
     const parallaxRay = this.computeClampedParallaxRay(viewDir, parallaxScale, maxOffset);
+    const sampleHeight = this.createHeightSampler(heightMap, uv);
 
-    // Sample height at current UV
-    const height = texture(heightMap, uv).x;
-
-    // Calculate and apply offset
-    // Height of 0 = deepest, height of 1 = surface
+    const height = sampleHeight(uv);
+    // height of 0 = deepest, height of 1 = surface
     const heightOffset = float(1.0).sub(height);
     const parallaxOffset = parallaxRay.mul(heightOffset);
 
@@ -86,131 +97,95 @@ export class ParallaxMapper {
   }
 
   /**
-   * Steep Parallax Mapping - fixed step ray marching
-   * Better quality than simple, cheaper than full POM
+   * Steep Parallax Mapping - fixed step ray marching with height-aware early
+   * exit. Single VarNode + Loop + If + Break.
    */
   private steepParallax(uv: Node, heightMap: Texture, config: ParallaxConfig, scale: number): Node {
     const steps = config.steps || 8;
-    const uvScale = float(Math.max(scale, 0.0001));
-    const parallaxScale = float(config.scale || 0.05).div(uvScale);
-    const maxOffset = float(config.maxOffset ?? 0.1).div(uvScale);
+    return Fn(() => {
+      const uvScale = float(Math.max(scale, 0.0001));
+      const parallaxScale = float(config.scale || 0.05).div(uvScale);
+      const maxOffset = float(config.maxOffset ?? 0.1).div(uvScale);
 
-    const viewDir = this.getViewDirTangentSpace();
-    const parallaxRay = this.computeClampedParallaxRay(viewDir, parallaxScale, maxOffset);
+      const viewDir = this.getViewDirTangentSpace();
+      const parallaxRay = this.computeClampedParallaxRay(viewDir, parallaxScale, maxOffset).toVar();
+      const sampleHeight = this.createHeightSampler(heightMap, uv);
 
-    // Calculate step parameters
-    const numSteps = float(steps);
-    const layerDepth = float(1.0).div(numSteps);
-    const deltaTexCoords = parallaxRay.div(numSteps);
+      const numSteps = float(steps);
+      const layerDepth = float(1.0).div(numSteps);
+      const deltaUv = parallaxRay.div(numSteps).toVar();
 
-    // Start from UV and step inward
-    let currentTexCoords: Node = uv;
-    let previousTexCoords: Node = uv;
-    let previousLayerDepth: Node = float(0.0);
-    let previousDepthMapValue: Node = float(1.0).sub(texture(heightMap, uv).x);
-    let currentLayerDepth: Node = float(0.0);
-    let currentDepthMapValue: Node = previousDepthMapValue;
-    let isFound: Node = float(0.0);
+      const currentUv = uv.toVar();
+      const currentLayerDepth = float(0.0).toVar();
+      const sampledDepth = float(1.0).sub(sampleHeight(currentUv)).toVar();
 
-    // Ray march - unrolled loop for GPU compatibility
-    for (let i = 0; i < steps; i++) {
-      const canAdvance = isFound.equal(float(0.0));
+      Loop(steps, () => {
+        If(currentLayerDepth.greaterThanEqual(sampledDepth), () => {
+          Break();
+        });
+        currentUv.subAssign(deltaUv);
+        currentLayerDepth.addAssign(layerDepth);
+        sampledDepth.assign(float(1.0).sub(sampleHeight(currentUv)));
+      });
 
-      const nextTexCoords = currentTexCoords.sub(deltaTexCoords);
-      const nextLayerDepth = currentLayerDepth.add(layerDepth);
-      const nextDepthMapValue = float(1.0).sub(texture(heightMap, nextTexCoords).x);
-
-      const intersection = nextLayerDepth.greaterThan(nextDepthMapValue).and(canAdvance);
-
-      previousTexCoords = select(intersection, currentTexCoords, previousTexCoords);
-      previousLayerDepth = select(intersection, currentLayerDepth, previousLayerDepth);
-      previousDepthMapValue = select(intersection, currentDepthMapValue, previousDepthMapValue);
-
-      currentTexCoords = select(canAdvance, nextTexCoords, currentTexCoords);
-      currentLayerDepth = select(canAdvance, nextLayerDepth, currentLayerDepth);
-      currentDepthMapValue = select(canAdvance, nextDepthMapValue, currentDepthMapValue);
-      isFound = select(intersection, float(1.0), isFound);
-    }
-
-    const after = currentDepthMapValue.sub(currentLayerDepth);
-    const before = previousDepthMapValue.sub(previousLayerDepth);
-    const denom = before.sub(after).abs().max(0.0001);
-    const weight = saturate(before.div(denom));
-    const refined = mix(currentTexCoords, previousTexCoords, weight);
-
-    return select(isFound.equal(float(1.0)), refined, currentTexCoords);
+      return currentUv;
+    })();
   }
 
   /**
-   * Parallax Occlusion Mapping - full quality with binary search refinement
-   * Expensive but highest quality
+   * Parallax Occlusion Mapping - full quality with binary search refinement.
+   * Single-VarNode + Loop pattern; no chained `select` VarNodes.
    */
   private parallaxOcclusionMapping(uv: Node, heightMap: Texture, config: ParallaxConfig, scale: number): Node {
     const steps = config.steps || 16;
-    const uvScale = float(Math.max(scale, 0.0001));
-    const parallaxScale = float(config.scale || 0.1).div(uvScale);
-    const maxOffset = float(config.maxOffset ?? 0.15).div(uvScale);
+    const refinementSteps = config.refinementSteps ?? 5;
+    return Fn(() => {
+      const uvScale = float(Math.max(scale, 0.0001));
+      const parallaxScale = float(config.scale || 0.1).div(uvScale);
+      const maxOffset = float(config.maxOffset ?? 0.15).div(uvScale);
 
-    const viewDir = this.getViewDirTangentSpace();
-    const parallaxRay = this.computeClampedParallaxRay(viewDir, parallaxScale, maxOffset);
+      const viewDir = this.getViewDirTangentSpace();
+      const parallaxRay = this.computeClampedParallaxRay(viewDir, parallaxScale, maxOffset).toVar();
+      const sampleHeight = this.createHeightSampler(heightMap, uv);
 
-    // Adaptive step count based on view angle
-    // More steps at grazing angles
-    const numSteps = float(steps);
-    const layerDepth = float(1.0).div(numSteps);
+      const layerDepth = float(1.0 / steps);
+      const deltaUv = parallaxRay.mul(layerDepth).toVar();
+      // posDelta.xy = uv step per layer, posDelta.z = -layerDepth so
+      // currentPos.subAssign(posDelta) moves UV against the view AND
+      // increments depthFromTop in a single statement.
+      const posDelta = vec3(deltaUv as any, layerDepth.negate()).toVar();
 
-    // Calculate UV offset per step.
-    const deltaTexCoords = parallaxRay.div(numSteps);
+      const currentPos = vec3((uv as any).x, (uv as any).y, float(0.0)).toVar();
+      const prevPos = currentPos.toVar();
 
-    // Initialize ray march
-    let currentTexCoords: Node = uv;
-    let prevTexCoords: Node = uv;
-    let currentLayerDepth: Node = float(0.0);
-    let prevLayerDepth: Node = float(0.0);
+      Loop(steps, () => {
+        const sampledDepth = float(1.0).sub(sampleHeight(currentPos.xy));
+        If(currentPos.z.greaterThanEqual(sampledDepth), () => {
+          Break();
+        });
+        prevPos.assign(currentPos);
+        currentPos.subAssign(posDelta);
+      });
 
-    // Depth map in "distance from surface" space (0 = surface, 1 = deep).
-    let currentDepthMapValue: Node = float(1.0).sub(texture(heightMap, uv).x);
-    let prevDepthMapValue: Node = currentDepthMapValue;
-    let isFound: Node = float(0.0);
+      // Midpoint bisection between currentPos (below surface) and prevPos
+      // (above surface). Mutates the same two VarNodes, no new ones.
+      Loop(refinementSteps, () => {
+        const midPos = currentPos.add(prevPos).mul(float(0.5)).toVar();
+        const sampledDepth = float(1.0).sub(sampleHeight(midPos.xy));
+        If(midPos.z.greaterThanEqual(sampledDepth), () => {
+          currentPos.assign(midPos);
+        }).Else(() => {
+          prevPos.assign(midPos);
+        });
+      });
 
-    // Ray march through the height field with first-hit tracking.
-    for (let i = 0; i < steps; i++) {
-      const canAdvance = isFound.equal(float(0.0));
-
-      const nextTexCoords = currentTexCoords.sub(deltaTexCoords);
-      const nextLayerDepth = currentLayerDepth.add(layerDepth);
-      const nextDepthMapValue = float(1.0).sub(texture(heightMap, nextTexCoords).x);
-
-      const intersection = nextLayerDepth.greaterThan(nextDepthMapValue).and(canAdvance);
-
-      prevTexCoords = select(intersection, currentTexCoords, prevTexCoords);
-      prevLayerDepth = select(intersection, currentLayerDepth, prevLayerDepth);
-      prevDepthMapValue = select(intersection, currentDepthMapValue, prevDepthMapValue);
-
-      currentTexCoords = select(canAdvance, nextTexCoords, currentTexCoords);
-      currentLayerDepth = select(canAdvance, nextLayerDepth, currentLayerDepth);
-      currentDepthMapValue = select(canAdvance, nextDepthMapValue, currentDepthMapValue);
-      isFound = select(intersection, float(1.0), isFound);
-    }
-
-    // Linear interpolation for accuracy
-    // Find where the ray actually intersected the surface
-    const afterDepth = currentDepthMapValue.sub(currentLayerDepth);
-    const beforeDepth = prevDepthMapValue.sub(prevLayerDepth);
-
-    // Interpolation weight
-    const denom = beforeDepth.sub(afterDepth).abs().max(0.0001);
-    const weight = saturate(beforeDepth.div(denom));
-
-    // Interpolate texture coordinates
-    const finalTexCoords = mix(currentTexCoords, prevTexCoords, weight);
-
-    return select(isFound.equal(float(1.0)), finalTexCoords, currentTexCoords);
+      return currentPos.xy;
+    })();
   }
 
   /**
-   * Silhouette-friendly POM variant with guarded binary refinement.
-   * Uses depth = 1 - height so white height values represent high surface hits.
+   * Silhouette-friendly POM variant with binary refinement and a non-zero
+   * reference plane. Returns both displaced UV and depth delta.
    */
   private silhouetteParallaxOcclusionMapping(
     uv: Node,
@@ -222,111 +197,110 @@ export class ParallaxMapper {
     const refinementSteps = config.refinementSteps ?? 5;
     const referencePlane = config.referencePlane ?? 0.5;
     const minViewZ = config.minViewZ ?? 0.08;
-    const uvScale = float(Math.max(scale, 0.0001));
-    const parallaxScale = float(config.scale || 0.1).div(uvScale);
-    const maxOffset = float(config.maxOffset ?? 0.15).div(uvScale);
 
-    const viewDir = this.getViewDirTangentSpace();
-    const parallaxRay = this.computeClampedParallaxRay(viewDir, parallaxScale, maxOffset, minViewZ);
-    const layerDepth = float(1.0 / steps);
-    const deltaTexCoords = parallaxRay.mul(layerDepth);
+    const result = Fn(() => {
+      const uvScale = float(Math.max(scale, 0.0001));
+      const parallaxScale = float(config.scale || 0.1).div(uvScale);
+      const maxOffset = float(config.maxOffset ?? 0.15).div(uvScale);
 
-    const currentTexCoords = uv.add(parallaxRay.mul(float(referencePlane))).toVar();
-    const currentLayerDepth = float(0.0).toVar();
-    const sampledDepth = float(1.0).sub(texture(heightMap, currentTexCoords).x).toVar();
+      const viewDir = this.getViewDirTangentSpace();
+      const parallaxRay = this.computeClampedParallaxRay(viewDir, parallaxScale, maxOffset, minViewZ).toVar();
+      const sampleHeight = this.createHeightSampler(heightMap, uv);
 
-    for (let i = 0; i < steps; i++) {
-      If(currentLayerDepth.lessThan(sampledDepth), () => {
-        currentTexCoords.subAssign(deltaTexCoords);
-        currentLayerDepth.addAssign(layerDepth);
-        sampledDepth.assign(float(1.0).sub(texture(heightMap, currentTexCoords).x));
+      const layerDepth = float(1.0 / steps);
+      const deltaUv = parallaxRay.mul(layerDepth).toVar();
+      const posDelta = vec3(deltaUv as any, layerDepth.negate()).toVar();
+
+      // Reference plane shifts where depthFromTop = 0 sits within the
+      // height field. referencePlane = 0.5 means the mid-height is treated
+      // as the geometry plane.
+      const startUv = uv.add(parallaxRay.mul(float(referencePlane)));
+      const currentPos = vec3((startUv as any).x, (startUv as any).y, float(0.0)).toVar();
+      const prevPos = currentPos.toVar();
+
+      Loop(steps, () => {
+        const sampledDepth = float(1.0).sub(sampleHeight(currentPos.xy));
+        If(currentPos.z.greaterThanEqual(sampledDepth), () => {
+          Break();
+        });
+        prevPos.assign(currentPos);
+        currentPos.subAssign(posDelta);
       });
-    }
 
-    this.binaryRefine(
-      currentTexCoords,
-      currentLayerDepth,
-      deltaTexCoords,
-      layerDepth,
-      heightMap,
-      refinementSteps
-    );
+      Loop(refinementSteps, () => {
+        const midPos = currentPos.add(prevPos).mul(float(0.5)).toVar();
+        const sampledDepth = float(1.0).sub(sampleHeight(midPos.xy));
+        If(midPos.z.greaterThanEqual(sampledDepth), () => {
+          currentPos.assign(midPos);
+        }).Else(() => {
+          prevPos.assign(midPos);
+        });
+      });
+
+      // Pack uv + depthFromTop into one vec3 so callers can fan out without
+      // re-marching. depthDelta is depthFromTop scaled by parallaxScale to
+      // approximate world units (same convention as the engine SPOM Surface
+      // node, so downstream Pixel Depth Offset consumers behave identically).
+      return vec3(currentPos.x, currentPos.y, currentPos.z.mul(parallaxScale));
+    })();
 
     return {
-      uv: currentTexCoords,
-      depthDelta: currentLayerDepth.mul(parallaxScale)
+      uv: (result as any).xy.toVar(),
+      depthDelta: (result as any).z.toVar()
     };
   }
 
-  private binaryRefine(
-    currentUv: Node,
-    currentLayerDepth: Node,
-    deltaUv: Node,
-    layerDepth: Node,
-    heightMap: Texture,
-    refinementSteps: number
-  ): void {
-    const hasAdvanced = currentLayerDepth.greaterThan(float(0.0));
+  private createHeightSampler(heightMap: Texture, baseUv: Node): (sampleUv: Node) => Node {
+    const ddxUv = dFdx(baseUv);
+    const ddyUv = dFdy(baseUv);
+    const heightTextureNode = texture(heightMap as any) as any;
 
-    If(hasAdvanced, () => {
-      currentUv.addAssign(deltaUv);
-      currentLayerDepth.subAssign(layerDepth);
-    });
-
-    const halfDelta = deltaUv.mul(float(0.5)).toVar();
-    const halfDepth = layerDepth.mul(float(0.5)).toVar();
-
-    for (let i = 0; i < refinementSteps; i++) {
-      If(hasAdvanced, () => {
-        currentUv.subAssign(halfDelta);
-        currentLayerDepth.addAssign(halfDepth);
-
-        const refinedDepth = float(1.0).sub(texture(heightMap, currentUv).x);
-
-        If(currentLayerDepth.greaterThan(refinedDepth), () => {
-          currentUv.addAssign(halfDelta);
-          currentLayerDepth.subAssign(halfDepth);
-        });
-
-        halfDelta.mulAssign(float(0.5));
-        halfDepth.mulAssign(float(0.5));
-      });
-    }
+    return (sampleUv: Node) => {
+      const sampled = typeof heightTextureNode?.sample === 'function'
+        ? heightTextureNode.sample(sampleUv)
+        : null;
+      const gradSample = sampled && typeof sampled.grad === 'function'
+        ? sampled.grad(ddxUv, ddyUv)
+        : null;
+      const sample = gradSample ?? texture(heightMap, sampleUv);
+      return sample.x ?? sample.r;
+    };
   }
 
   /**
-   * Get view direction in tangent space
+   * Get view direction in tangent space. Prefer Three's `parallaxDirection`
+   * builtin, falling back to a manual TBN inverse when unavailable.
    */
   private getViewDirTangentSpace(): Node {
     if (parallaxDirection) {
       return (parallaxDirection as any).normalize();
     }
 
-    // View direction in world space (from surface to camera)
     const viewDirWorld = cameraPosition.sub(positionWorld).normalize();
-
-    // Construct TBN matrix
     const normal = normalWorld.normalize();
     const tangent = tangentWorld.normalize();
     const bitangent = normal.cross(tangent).normalize();
-
-    // Build tangent-space matrix
     const TBN = mat3(tangent, bitangent, normal);
-
-    // Transform view direction to tangent space
     const worldToTangent = TBN.transpose();
     const viewDirTangent = worldToTangent.mul(vec3(viewDirWorld)).normalize();
     return vec3(viewDirTangent.x, viewDirTangent.y, viewDirTangent.z.abs()).normalize();
   }
 
   /**
-   * Compute a tangent-space parallax ray with max offset clamping.
+   * Compute a tangent-space parallax ray with max-offset clamping so the UV
+   * never travels further than the texture detail can support at grazing
+   * angles.
    */
-  private computeClampedParallaxRay(viewDir: Node, parallaxScale: Node, maxOffset: Node, minViewZ = 0.001): Node {
+  private computeClampedParallaxRay(
+    viewDir: Node,
+    parallaxScale: Node,
+    maxOffset: Node,
+    minViewZ = 0.001
+  ): Node {
     const viewZ = tslMax(viewDir.z.abs(), float(minViewZ));
     const ray = viewDir.xy.div(viewZ).mul(parallaxScale);
-    const rayLength = ray.length();
-    const clampFactor = maxOffset.div(rayLength.max(0.0001)).min(1.0);
+    const rayLength = length(ray);
+    const clampFactor = tslMin(float(1.0), maxOffset.div(tslMax(rayLength, float(0.0001))));
     return ray.mul(clampFactor);
   }
 

@@ -188,7 +188,13 @@ export class DynamicLayeredMaterial extends LayeredMaterial {
 
     return {
       enable: factor > 0.5 ? t.enable : s.enable,
-      blend: this.lerp(s.blend, t.blend, factor)
+      mode: factor > 0.5 ? t.mode : s.mode,
+      blend: this.lerp(s.blend, t.blend, factor),
+      rotation: factor > 0.5 ? t.rotation : s.rotation,
+      offset: factor > 0.5 ? t.offset : s.offset,
+      heightBlend: factor > 0.5 ? t.heightBlend : s.heightBlend,
+      normalCorrection: factor > 0.5 ? t.normalCorrection : s.normalCorrection,
+      scaleJitter: this.lerp(s.scaleJitter, t.scaleJitter, factor)
     };
   }
 

@@ -11,7 +11,7 @@ import {
   select
 } from "three/tsl";
 import { LayerConfig, LayerData } from "../../types";
-import { Texture, Vector3 } from "three";
+import { NoColorSpace, SRGBColorSpace, Texture, Vector3 } from "three";
 
 import { TextureBombing } from '../bombing/TextureBombing';
 import { EdgeWearCalculator } from '../edge-wear/EdgeWearCalculator';
@@ -34,6 +34,7 @@ export class TriplanarSampler {
     if (!layer.triplanar?.enable) {
       throw new Error('TriplanarSampler requires triplanar.enable to be true');
     }
+    this.normalizeTextureColorSpaces(layer);
 
     // Determine projection space (world vs local)
     const useWorldSpace = layer.triplanar.useWorldPosition ?? true;
@@ -47,7 +48,7 @@ export class TriplanarSampler {
     const uvZ = projPos.xy.mul(scale); // XY plane (Z-axis projection)
 
     // Calculate blend weights from surface normal
-    const blendWeights = this.calculateBlendWeights(projNorm);
+    const blendWeights = this.calculateBlendWeights(projNorm, layer.triplanar.sharpness, layer.triplanar.cutoff);
 
     // Determine if we should use texture bombing
     const useBombing = layer.textureBombing?.enable ?? false;
@@ -59,7 +60,8 @@ export class TriplanarSampler {
       uvX, uvY, uvZ,
       blendWeights,
       useBombing,
-      bombingBlend
+      bombingBlend,
+      layer.textureBombing
     );
 
     const normal = this.sampleTriplanarNormal(
@@ -67,7 +69,8 @@ export class TriplanarSampler {
       uvX, uvY, uvZ,
       blendWeights,
       useBombing,
-      bombingBlend
+      bombingBlend,
+      layer.textureBombing
     );
 
     const { roughness, metalness, ao } = this.sampleTriplanarPBR(
@@ -84,7 +87,8 @@ export class TriplanarSampler {
       blendWeights,
       0.5,
       useBombing,
-      bombingBlend
+      bombingBlend,
+      layer.textureBombing
     );
 
     // Apply edge wear if enabled
@@ -98,10 +102,16 @@ export class TriplanarSampler {
   /**
    * Calculate triplanar blend weights based on surface normal
    */
-  private calculateBlendWeights(normal: Node): Node {
+  private calculateBlendWeights(normal: Node, sharpness = 4.0, cutoff = 0.0): Node {
     const nAbs = abs(normal);
-    const sharpness = float(4.0);
-    const weighted: any = nAbs.pow(sharpness) as any;
+    const sharpnessNode = float(Math.max(sharpness, 0.001));
+    const cutoffNode = float(Math.max(cutoff, 0.0));
+    const weightedRaw: any = nAbs.pow(sharpnessNode) as any;
+    const weighted = vec3(
+      weightedRaw.x.sub(cutoffNode).max(0.0),
+      weightedRaw.y.sub(cutoffNode).max(0.0),
+      weightedRaw.z.sub(cutoffNode).max(0.0)
+    );
     const eps = float(1e-6);
     const sum = (weighted as any).x.add((weighted as any).y).add((weighted as any).z).add(eps);
     return weighted.div(sum); // Normalized weights that sum to 1
@@ -112,7 +122,8 @@ export class TriplanarSampler {
     uvX: Node, uvY: Node, uvZ: Node,
     blend: Node,
     useBombing: boolean,
-    bombingBlend: number
+    bombingBlend: number,
+    bombingConfig = undefined as LayerConfig['textureBombing']
   ): Node {
     if (!colorInput) {
       return vec3(1, 1, 1);
@@ -134,13 +145,13 @@ export class TriplanarSampler {
     const weightSum = wx.add(wy).add(wz).max(0.0001);
 
     const sampleX = useBombing
-      ? this._textureBombing.sample(colorInput, uvX, bombingBlend).xyz
+      ? this._textureBombing.sample(colorInput, uvX, bombingBlend, bombingConfig).xyz
       : texture(colorInput, uvX).xyz;
     const sampleY = useBombing
-      ? this._textureBombing.sample(colorInput, uvY, bombingBlend).xyz
+      ? this._textureBombing.sample(colorInput, uvY, bombingBlend, bombingConfig).xyz
       : texture(colorInput, uvY).xyz;
     const sampleZ = useBombing
-      ? this._textureBombing.sample(colorInput, uvZ, bombingBlend).xyz
+      ? this._textureBombing.sample(colorInput, uvZ, bombingBlend, bombingConfig).xyz
       : texture(colorInput, uvZ).xyz;
 
     const sX = select(useX, sampleX, vec3(0.0, 0.0, 0.0));
@@ -155,7 +166,8 @@ export class TriplanarSampler {
     uvX: Node, uvY: Node, uvZ: Node,
     blend: Node,
     useBombing: boolean,
-    bombingBlend: number
+    bombingBlend: number,
+    bombingConfig = undefined as LayerConfig['textureBombing']
   ): Node {
     if (!normalMap) {
       return vec3(0, 0, 1);
@@ -172,13 +184,13 @@ export class TriplanarSampler {
 
     // Sample normals from active projections only (branchable select).
     const packedX = useBombing
-      ? this._textureBombing.sample(normalMap, uvX, bombingBlend).xyz
+      ? this._textureBombing.sampleNormal(normalMap, uvX, bombingBlend, bombingConfig).add(1.0).mul(0.5)
       : texture(normalMap, uvX).xyz;
     const packedY = useBombing
-      ? this._textureBombing.sample(normalMap, uvY, bombingBlend).xyz
+      ? this._textureBombing.sampleNormal(normalMap, uvY, bombingBlend, bombingConfig).add(1.0).mul(0.5)
       : texture(normalMap, uvY).xyz;
     const packedZ = useBombing
-      ? this._textureBombing.sample(normalMap, uvZ, bombingBlend).xyz
+      ? this._textureBombing.sampleNormal(normalMap, uvZ, bombingBlend, bombingConfig).add(1.0).mul(0.5)
       : texture(normalMap, uvZ).xyz;
 
     const sX = select(useX, this.unpackNormal(packedX), vec3(0.0, 0.0, 0.0));
@@ -223,13 +235,13 @@ export class TriplanarSampler {
       const weightSum = wx.add(wy).add(wz).max(0.0001);
 
       const armX = useBombing
-        ? this._textureBombing.sample(layer.map.arm, uvX, bombingBlend).xyz
+        ? this._textureBombing.sample(layer.map.arm, uvX, bombingBlend, layer.textureBombing).xyz
         : texture(layer.map.arm, uvX).xyz;
       const armY = useBombing
-        ? this._textureBombing.sample(layer.map.arm, uvY, bombingBlend).xyz
+        ? this._textureBombing.sample(layer.map.arm, uvY, bombingBlend, layer.textureBombing).xyz
         : texture(layer.map.arm, uvY).xyz;
       const armZ = useBombing
-        ? this._textureBombing.sample(layer.map.arm, uvZ, bombingBlend).xyz
+        ? this._textureBombing.sample(layer.map.arm, uvZ, bombingBlend, layer.textureBombing).xyz
         : texture(layer.map.arm, uvZ).xyz;
 
       const sampleX = select(useX, armX, vec3(0.0, 0.0, 0.0));
@@ -249,15 +261,15 @@ export class TriplanarSampler {
     return {
       roughness: this.sampleTriplanarScalar(
         layer.map?.roughness, uvX, uvY, uvZ, blend,
-        layer.roughness ?? 0.5, useBombing, bombingBlend
+        layer.roughness ?? 0.5, useBombing, bombingBlend, layer.textureBombing
       ),
       metalness: this.sampleTriplanarScalar(
         layer.map?.metalness, uvX, uvY, uvZ, blend,
-        layer.metalness ?? 0.0, useBombing, bombingBlend
+        layer.metalness ?? 0.0, useBombing, bombingBlend, layer.textureBombing
       ),
       ao: this.sampleTriplanarScalar(
         layer.map?.ao, uvX, uvY, uvZ, blend,
-        1.0, useBombing, bombingBlend
+        1.0, useBombing, bombingBlend, layer.textureBombing
       )
     };
   }
@@ -268,7 +280,8 @@ export class TriplanarSampler {
     blend: Node,
     fallback: number,
     useBombing: boolean,
-    bombingBlend: number
+    bombingBlend: number,
+    bombingConfig = undefined as LayerConfig['textureBombing']
   ): Node {
     if (!map) {
       return float(fallback);
@@ -285,13 +298,13 @@ export class TriplanarSampler {
     const weightSum = wx.add(wy).add(wz).max(0.0001);
 
     const sXRaw = useBombing
-      ? this._textureBombing.sample(map, uvX, bombingBlend).x
+      ? this._textureBombing.sample(map, uvX, bombingBlend, bombingConfig).x
       : texture(map, uvX).x;
     const sYRaw = useBombing
-      ? this._textureBombing.sample(map, uvY, bombingBlend).x
+      ? this._textureBombing.sample(map, uvY, bombingBlend, bombingConfig).x
       : texture(map, uvY).x;
     const sZRaw = useBombing
-      ? this._textureBombing.sample(map, uvZ, bombingBlend).x
+      ? this._textureBombing.sample(map, uvZ, bombingBlend, bombingConfig).x
       : texture(map, uvZ).x;
 
     const sX = select(useX, sXRaw, float(0.0));
@@ -307,5 +320,30 @@ export class TriplanarSampler {
 
   private applyEdgeWear(data: LayerData, layer: LayerConfig): LayerData {
     return this._edgeWearCalculator.apply(data, layer.edgeWear!);
+  }
+
+  private normalizeTextureColorSpaces(layer: LayerConfig): void {
+    const map = layer.map;
+    if (!map) return;
+
+    this.setTextureColorSpace(map.color, SRGBColorSpace);
+    this.setTextureColorSpace(map.normal, NoColorSpace);
+    this.setTextureColorSpace(map.roughness, NoColorSpace);
+    this.setTextureColorSpace(map.metalness, NoColorSpace);
+    this.setTextureColorSpace(map.ao, NoColorSpace);
+    this.setTextureColorSpace(map.height, NoColorSpace);
+    this.setTextureColorSpace(map.arm, NoColorSpace);
+  }
+
+  private setTextureColorSpace(textureInput: Texture | Vector3 | undefined, colorSpace: Texture['colorSpace']): void {
+    if (!textureInput || !(textureInput instanceof Texture || (textureInput as any).isTexture === true)) {
+      return;
+    }
+
+    const texture = textureInput as Texture;
+    if (texture.colorSpace !== colorSpace) {
+      texture.colorSpace = colorSpace;
+      texture.needsUpdate = true;
+    }
   }
 }

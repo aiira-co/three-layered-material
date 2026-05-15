@@ -1,7 +1,7 @@
 
 import { texture, uv, vec3, float, mix, saturate } from "three/tsl";
 import { LayerConfig, LayerData } from "../types";
-import { Texture, Vector3 } from "three";
+import { NoColorSpace, SRGBColorSpace, Texture, Vector3 } from "three";
 import { TextureBombing } from '../features/bombing/TextureBombing';
 import { ParallaxMapper } from '../features/parallax/ParallaxMapper';
 import { EdgeWearCalculator } from '../features/edge-wear/EdgeWearCalculator';
@@ -25,6 +25,7 @@ export class TextureSampler {
     if (!layer.map) {
       throw new Error('TextureSampler requires layer.map to be defined');
     }
+    this.normalizeTextureColorSpaces(layer);
 
     // Calculate UV coordinates with scale
     let uvCoords: Node = uv().mul(float(layer.scale ?? 1));
@@ -47,7 +48,7 @@ export class TextureSampler {
     const bombingBlend = layer.textureBombing?.blend ?? 0.5;
 
     // Sample all material properties
-    let color = this.sampleColor(layer.map.color, uvCoords, useBombing, bombingBlend);
+    let color = this.sampleColor(layer.map.color, uvCoords, useBombing, bombingBlend, layer.textureBombing);
 
     // Apply color tint if specified
     if (layer.colorTint) {
@@ -55,7 +56,7 @@ export class TextureSampler {
       color = color.mul(tint);
     }
 
-    const normal = this.sampleNormal(layer.map.normal, uvCoords, useBombing, bombingBlend);
+    const normal = this.sampleNormal(layer.map.normal, uvCoords, useBombing, bombingBlend, layer.textureBombing);
     const { roughness, metalness, ao } = this.samplePBRProperties(layer, uvCoords, useBombing, bombingBlend);
 
     // Apply edge wear if enabled
@@ -70,7 +71,8 @@ export class TextureSampler {
     colorInput: Texture | Vector3 | undefined,
     uvCoords: Node,
     useBombing: boolean,
-    bombingBlend: number
+    bombingBlend: number,
+    bombingConfig = undefined as LayerConfig['textureBombing']
   ): Node {
     if (!colorInput) {
       return vec3(1, 1, 1);
@@ -79,7 +81,7 @@ export class TextureSampler {
     if (colorInput instanceof Texture) {
       if (useBombing) {
 
-        return this._textureBombing.sample(colorInput, uvCoords, bombingBlend).xyz;
+        return this._textureBombing.sample(colorInput, uvCoords, bombingBlend, bombingConfig).xyz;
       }
       return texture(colorInput, uvCoords).xyz;
     }
@@ -92,21 +94,19 @@ export class TextureSampler {
     normalMap: Texture | undefined,
     uvCoords: Node,
     useBombing: boolean,
-    bombingBlend: number
+    bombingBlend: number,
+    bombingConfig = undefined as LayerConfig['textureBombing']
   ): Node {
     if (!normalMap) {
       return vec3(0, 0, 1);
     }
 
-    let normalSample: Node;
     if (useBombing) {
-      normalSample = this._textureBombing.sample(normalMap, uvCoords, bombingBlend).xyz;
-    } else {
-      normalSample = texture(normalMap, uvCoords).xyz;
+      return this._textureBombing.sampleNormal(normalMap, uvCoords, bombingBlend, bombingConfig);
     }
 
     // Unpack from [0,1] to [-1,1]
-    return normalSample.mul(2.0).sub(1.0);
+    return texture(normalMap, uvCoords).xyz.mul(2.0).sub(1.0);
   }
 
   private sampleHeight(layer: LayerConfig, uvCoords: Node): Node {
@@ -118,7 +118,7 @@ export class TextureSampler {
     const bombingBlend = layer.textureBombing?.blend ?? 0.5;
 
     if (useBombing) {
-      return this._textureBombing.sample(layer.map.height, uvCoords, bombingBlend).x;
+      return this._textureBombing.sample(layer.map.height, uvCoords, bombingBlend, layer.textureBombing).x;
     }
 
     return texture(layer.map.height, uvCoords).x;
@@ -134,7 +134,7 @@ export class TextureSampler {
     if (layer.map?.arm) {
       const armSample = useBombing
         ? (new TextureBombing()).sample(
-          layer.map.arm, uvCoords, bombingBlend
+          layer.map.arm, uvCoords, bombingBlend, layer.textureBombing
         )
         : texture(layer.map.arm, uvCoords);
 
@@ -146,20 +146,22 @@ export class TextureSampler {
     }
 
     // Sample individual maps
-    const ao = this.sampleScalarMap(layer.map?.ao, uvCoords, useBombing, bombingBlend, 1.0);
+    const ao = this.sampleScalarMap(layer.map?.ao, uvCoords, useBombing, bombingBlend, 1.0, layer.textureBombing);
     const roughness = this.sampleScalarMap(
       layer.map?.roughness,
       uvCoords,
       useBombing,
       bombingBlend,
-      layer.roughness ?? 0.5
+      layer.roughness ?? 0.5,
+      layer.textureBombing
     );
     const metalness = this.sampleScalarMap(
       layer.map?.metalness,
       uvCoords,
       useBombing,
       bombingBlend,
-      layer.metalness ?? 0.0
+      layer.metalness ?? 0.0,
+      layer.textureBombing
     );
 
     return { roughness, metalness, ao };
@@ -170,14 +172,15 @@ export class TextureSampler {
     uvCoords: Node,
     useBombing: boolean,
     bombingBlend: number,
-    fallback: number
+    fallback: number,
+    bombingConfig = undefined as LayerConfig['textureBombing']
   ): Node {
     if (!map) {
       return float(fallback);
     }
 
     if (useBombing) {
-      return this._textureBombing.sample(map, uvCoords, bombingBlend).x;
+      return this._textureBombing.sample(map, uvCoords, bombingBlend, bombingConfig).x;
     }
 
     return texture(map, uvCoords).x;
@@ -185,5 +188,30 @@ export class TextureSampler {
 
   private applyEdgeWear(data: LayerData, layer: LayerConfig): LayerData {
     return this._edgeWearCalculator.apply(data, layer.edgeWear!);
+  }
+
+  private normalizeTextureColorSpaces(layer: LayerConfig): void {
+    const map = layer.map;
+    if (!map) return;
+
+    this.setTextureColorSpace(map.color, SRGBColorSpace);
+    this.setTextureColorSpace(map.normal, NoColorSpace);
+    this.setTextureColorSpace(map.roughness, NoColorSpace);
+    this.setTextureColorSpace(map.metalness, NoColorSpace);
+    this.setTextureColorSpace(map.ao, NoColorSpace);
+    this.setTextureColorSpace(map.height, NoColorSpace);
+    this.setTextureColorSpace(map.arm, NoColorSpace);
+  }
+
+  private setTextureColorSpace(textureInput: Texture | Vector3 | undefined, colorSpace: Texture['colorSpace']): void {
+    if (!textureInput || !(textureInput instanceof Texture || (textureInput as any).isTexture === true)) {
+      return;
+    }
+
+    const texture = textureInput as Texture;
+    if (texture.colorSpace !== colorSpace) {
+      texture.colorSpace = colorSpace;
+      texture.needsUpdate = true;
+    }
   }
 }
